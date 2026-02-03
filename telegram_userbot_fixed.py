@@ -18,7 +18,7 @@ PHONE = os.environ.get('PHONE', '+919036205120')
 
 # Grok (x.ai) API
 AI_API_URL = 'https://api.x.ai/v1/chat/completions'
-AI_API_KEY = os.environ.get('GROK_API_KEY', "xai-KYXHEKBrTvGIdtq0VbSZDsQfA4j6Mgw5f8nBUyptt8EapX49d0BCs7a5gIzwkbqcN4FfFeODNuIt2mVA")
+AI_API_KEY = os.environ.get('GROK_API_KEY', "xai-xkR5CGMt9LpjDUu7ZmY0FmzvBOxAHK6sbzh9FoDIkeHNCivA58JRvVNIGrwmQuv4sKIPHuol9vp5kVgs")
 MODEL_NAME = 'grok-4-latest'
 
 # Файлы БД
