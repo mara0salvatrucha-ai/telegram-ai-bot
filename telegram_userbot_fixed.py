@@ -16,10 +16,10 @@ API_ID = int(os.environ.get('API_ID', '39678712'))
 API_HASH = os.environ.get('API_HASH', '3089ac53d532e75deb5dd641e4863d49')
 PHONE = os.environ.get('PHONE', '+919036205120')
 
-# Grok (x.ai) API
-AI_API_URL = 'https://api.x.ai/v1/chat/completions'
-AI_API_KEY = os.environ.get('GROK_API_KEY', "xai-xkR5CGMt9LpjDUu7ZmY0FmzvBOxAHK6sbzh9FoDIkeHNCivA58JRvVNIGrwmQuv4sKIPHuol9vp5kVgs")
-MODEL_NAME = 'grok-4-latest'
+# OnlySQ API (замена Grok)
+AI_API_URL = 'https://api.onlysq.ru/ai/openai/chat/completions'
+AI_API_KEY = os.environ.get('OPENAI_API_KEY', 'openai')  # API ключ для onlysq
+MODEL_NAME = 'gpt-4o-mini'  # Модель для onlysq
 
 # Файлы БД
 DB_FILE = 'messages.json'
@@ -589,18 +589,17 @@ if os.path.exists(TEMP_SELECTION_FILE):
 else:
     user_selection_state = {}
 
-# ============ ФУНКЦИИ ИИ С OPENROUTER ============
+# ============ ФУНКЦИИ ИИ С ONLYSQ ============
 async def transcribe_voice(voice_path):
-    """Транскрибация голосового через OpenRouter (если модель поддерживает)"""
+    """Транскрибация голосового через API (заглушка)"""
     try:
-        # Простая заглушка - OpenRouter не все модели поддерживают аудио
         return "[голосовое сообщение]"
     except Exception as e:
         print(f'❌ Ошибка транскрипции: {e}')
         return "[голосовое]"
 
 async def describe_photo(photo_path):
-    """Описание фото через OpenRouter Vision API"""
+    """Описание фото через OnlySQ Vision API"""
     try:
         config = load_ai_config()
         
@@ -608,16 +607,11 @@ async def describe_photo(photo_path):
         with open(photo_path, 'rb') as f:
             photo_data = base64.b64encode(f.read()).decode('utf-8')
         
-        # Создаем SSL контекст без проверки сертификатов
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        
-        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        connector = aiohttp.TCPConnector(ssl=False)
         
         async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=30)) as session:
             payload = {
-                'model': 'openai/gpt-4o-mini',  # Vision модель
+                'model': 'gpt-4o-mini',  # Vision модель
                 'messages': [
                     {
                         'role': 'user',
@@ -634,7 +628,8 @@ async def describe_photo(photo_path):
                             }
                         ]
                     }
-                ]
+                ],
+                'temperature': 0.7
             }
             
             headers = {
@@ -654,7 +649,7 @@ async def describe_photo(photo_path):
         return "[фотография]"
 
 async def get_ai_response(messages, config=None):
-    """Получение ответа от ИИ через Grok (x.ai) API"""
+    """Получение ответа от ИИ через OnlySQ API"""
     try:
         if config is None:
             config = load_ai_config()
@@ -666,19 +661,13 @@ async def get_ai_response(messages, config=None):
         api_messages = [{'role': 'system', 'content': system_prompt}]
         api_messages.extend(messages)
         
-        # SSL без проверки сертификатов
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        
-        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        connector = aiohttp.TCPConnector(ssl=False)
         
         async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=60)) as session:
             payload = {
                 'model': MODEL_NAME,
                 'messages': api_messages,
-                'temperature': 0.7,
-                'stream': False
+                'temperature': 0.7
             }
             
             headers = {
@@ -703,10 +692,10 @@ async def get_ai_response(messages, config=None):
                     return content
                 else:
                     error_text = await resp.text()
-                    print(f'❌ Grok API ошибка {resp.status}: {error_text}')
+                    print(f'❌ OnlySQ API ошибка {resp.status}: {error_text}')
                     return 'не смог ответить'
     except Exception as e:
-        print(f'❌ Grok API ошибка: {e}')
+        print(f'❌ OnlySQ API ошибка: {e}')
         import traceback
         traceback.print_exc()
         return 'ошибка апи'
@@ -794,7 +783,7 @@ async def handle_aiconfig_commands(event, message_text):
     await delete_previous_command(chat_id)
     
     if message_text.lower() == '.aiconfig help':
-        help_text = '''🤖 **ПАНЕЛЬ УПРАВЛЕНИЯ ИИ** (Grok by xAI)
+        help_text = '''🤖 **ПАНЕЛЬ УПРАВЛЕНИЯ ИИ** (OnlySQ API)
 
 📋 **ОСНОВНЫЕ НАСТРОЙКИ**
 ┣‣ `.aiconfig status` - 📊 Показать статус
@@ -825,8 +814,8 @@ async def handle_aiconfig_commands(event, message_text):
 ⚡ **БЫСТРЫЕ ЗАПРОСЫ**
 ┣‣ `.neiro <запрос>` - Мгновенный ответ
 
-🌐 **API:** Grok by xAI
-🤖 **Модель:** grok-4-latest'''
+🌐 **API:** OnlySQ
+🤖 **Модель:** gpt-4o-mini'''
         
         msg = await event.respond(help_text)
         await event.delete()
@@ -847,8 +836,8 @@ async def handle_aiconfig_commands(event, message_text):
 📊 История: {config['max_history']} сообщений
 🧠 Личность: {config['personality'][:100]}...
 
-🌐 **API:** Grok by xAI
-🤖 **Модель:** grok-4-latest
+🌐 **API:** OnlySQ
+🤖 **Модель:** {MODEL_NAME}
 ⚡ **Быстрые запросы:** .neiro <текст>'''
         
         msg = await event.respond(status_text)
@@ -1447,7 +1436,7 @@ async def handle_neiro_command(event, message_text):
         # Показываем индикатор загрузки
         await event.edit(f'🤖 **Запрос:** {query}\n\n⏳ Думаю...')
         
-        # Получаем ответ от Grok
+        # Получаем ответ от OnlySQ
         config = load_ai_config()
         
         # Простой запрос без истории
@@ -1455,7 +1444,6 @@ async def handle_neiro_command(event, message_text):
         response = await get_ai_response(messages, config)
         
         # Форматируем ответ для копирования
-        # Используем моноширинный шрифт для лучшего копирования
         formatted_response = f'🤖 **Запрос:** {query}\n\n📝 **Ответ:**\n```\n{response}\n```'
         
         # Редактируем сообщение с ответом
@@ -1826,7 +1814,7 @@ async def outgoing_handler(event):
             if await handle_neiro_command(event, message_text):
                 return
         
-        # Команды управления ИИ в чате - ИСПРАВЛЕНО
+        # Команды управления ИИ в чате
         if message_text.lower() == '.aistop':
             await delete_previous_command(chat_id)
             config = load_ai_config()
@@ -1881,9 +1869,9 @@ async def main():
         print(f'✅ Userbot запущен!')
         print(f'👤 Аккаунт: {me.username or me.first_name} (ID: {OWNER_ID})')
         print(f'🤖 AI: {MODEL_NAME}')
-        print(f'🔗 API: Grok (x.ai)')
+        print(f'🔗 API: OnlySQ (api.onlysq.ru)')
         print(f'\n🆕 ВОЗМОЖНОСТИ:')
-        print('🤖 Авто-ответы от ИИ через Grok')
+        print('🤖 Авто-ответы от ИИ через OnlySQ')
         print('🎤 Обработка голосовых сообщений')
         print('📷 Анализ фотографий (Vision API)')
         print('⚡ Мгновенное сохранение удаленных')
@@ -1908,8 +1896,9 @@ async def main():
         print('   • JSON файл можно отправить для загрузки конфига')
         print('   • Заглушка работает глобально по всем чатам')
         print('   • ИИ пишет с маленькой буквы как человек')
-        print('   • SSL сертификаты не проверяются')
-        print('   • .aistop теперь правильно выключает ИИ')
+        print('   • SSL сертификаты отключены (ssl=False)')
+        print('   • .aistop правильно выключает ИИ')
+        print('   • API: OnlySQ вместо Grok')
         print('\n🎧 Слушаю...\n')
         
         await client.run_until_disconnected()
