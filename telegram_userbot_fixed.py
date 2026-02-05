@@ -53,23 +53,23 @@ from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, InputPeer
 ACCOUNTS = [
     {
         'name': 'Account1',
-        'api_id': int(os.environ.get('API_ID_1', '39678712')),
-        'api_hash': os.environ.get('API_HASH_1', '3089ac53d532e75deb5dd641e4863d49'),
-        'phone': os.environ.get('PHONE_1', '+79001234567'),
+        'api_id': int(os.environ.get('API_ID_1', '30612474')),
+        'api_hash': os.environ.get('API_HASH_1', 'e602dd5243cfe4ea3c165c2b3d49a810'),
+        'phone': os.environ.get('PHONE_1', '+79786180647'),
         'session': os.environ.get('SESSION_1', 'session_account1'),
     },
     {
         'name': 'Account2',
         'api_id': int(os.environ.get('API_ID_2', '39678712')),
         'api_hash': os.environ.get('API_HASH_2', '3089ac53d532e75deb5dd641e4863d49'),
-        'phone': os.environ.get('PHONE_2', '+79001234568'),
+        'phone': os.environ.get('PHONE_2', '+919036205120'),
         'session': os.environ.get('SESSION_2', 'session_account2'),
     },
     {
         'name': 'Account3',
-        'api_id': int(os.environ.get('API_ID_3', '39678712')),
-        'api_hash': os.environ.get('API_HASH_3', '3089ac53d532e75deb5dd641e4863d49'),
-        'phone': os.environ.get('PHONE_3', '+79001234569'),
+        'api_id': int(os.environ.get('API_ID_3', '')),
+        'api_hash': os.environ.get('API_HASH_3', ''),
+        'phone': os.environ.get('PHONE_3', ''),
         'session': os.environ.get('SESSION_3', 'session_account3'),
     },
 ]
