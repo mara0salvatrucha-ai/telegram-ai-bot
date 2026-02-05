@@ -65,18 +65,22 @@ def load_ai_config():
     if os.path.exists(AI_CONFIG_FILE):
         try:
             with open(AI_CONFIG_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                config = json.load(f)
+                # Обратная совместимость - если нет advanced, создаем
+                if 'advanced' not in config:
+                    advanced = {}
+                    for key in ['lowercase', 'auto_reply_all', 'voice_enabled', 'photo_enabled', 'max_history', 'temperature']:
+                        if key in config:
+                            advanced[key] = config.pop(key)
+                    if advanced:
+                        config['advanced'] = advanced
+                return config
         except:
             pass
+    # Упрощенный базовый конфиг (только 2 параметра)
     return {
         'enabled': False,
-        'personality': 'отвечай как обычный человек, кратко и по делу. пиши с маленькой буквы',
-        'style': 'casual',
-        'lowercase': True,
-        'auto_reply_all': False,
-        'voice_enabled': True,
-        'photo_enabled': True,
-        'max_history': 20
+        'personality': 'отвечай как обычный человек, кратко и по делу. пиши с маленькой буквы'
     }
 
 def save_ai_config(config):
@@ -657,6 +661,11 @@ async def get_ai_response(messages, config=None):
         # Системный промпт
         system_prompt = config.get('personality', 'отвечай как обычный человек, кратко и по делу. пиши с маленькой буквы')
         
+        # Получаем advanced настройки
+        advanced = config.get('advanced', {})
+        temperature = advanced.get('temperature', 0.7)
+        lowercase = advanced.get('lowercase', True)
+        
         # Формируем сообщения
         api_messages = [{'role': 'system', 'content': system_prompt}]
         api_messages.extend(messages)
@@ -667,7 +676,7 @@ async def get_ai_response(messages, config=None):
             payload = {
                 'model': MODEL_NAME,
                 'messages': api_messages,
-                'temperature': 0.7
+                'temperature': temperature
             }
             
             headers = {
@@ -684,7 +693,7 @@ async def get_ai_response(messages, config=None):
                         return 'хз'
                     
                     # Применяем lowercase
-                    if config.get('lowercase', True) and content:
+                    if lowercase and content:
                         # Делаем первую букву маленькой
                         if content[0].isupper():
                             content = content[0].lower() + content[1:]
@@ -703,7 +712,8 @@ async def get_ai_response(messages, config=None):
 def get_chat_history(chat_id, limit=10):
     """Получить историю чата"""
     config = load_ai_config()
-    max_history = config.get('max_history', 20)
+    advanced = config.get('advanced', {})
+    max_history = advanced.get('max_history', 20)
     limit = min(limit, max_history)
     
     chat_key = str(chat_id)
@@ -726,7 +736,8 @@ def save_message(chat_id, role, content):
     db[chat_key].append(message)
     
     config = load_ai_config()
-    max_history = config.get('max_history', 20)
+    advanced = config.get('advanced', {})
+    max_history = advanced.get('max_history', 20)
     
     if len(db[chat_key]) > max_history * 2:
         db[chat_key] = db[chat_key][-max_history * 2:]
@@ -775,10 +786,7 @@ async def forward_to_saved(media_path, caption_text=""):
 async def handle_aiconfig_commands(event, message_text):
     """Обработка команд настройки ИИ"""
     chat_id = event.chat_id
-    
-    # Команды работают только в Saved Messages
-    if chat_id != OWNER_ID:
-        return False
+    message_text = message_text.strip()
     
     await delete_previous_command(chat_id)
     
@@ -794,9 +802,36 @@ async def handle_aiconfig_commands(event, message_text):
 
 ⚙️ **КОНФИГУРАЦИЯ**
 ┣‣ `.aiconfig show` - 📄 Показать конфиг
+┣‣ `.aiconfig export` - 💾 Экспорт в JSON
 ┣‣ `.aiconfig edit` - ✏️ Редактировать
 ┣‣ `.aiconfig reset` - 🔄 Сброс
 ┣‣ Отправьте JSON файл - загрузка конфига
+
+💡 **СТИЛЬ**
+┣‣ `.aiconfig lowercase on/off` - 🔡 Маленькие буквы
+
+📝 **ЛИЧНОСТЬ**
+┣‣ `.aiconfig personality <текст>` - Задать личность
+
+🗑️ **УПРАВЛЕНИЕ**
+┣‣ `.aistop` - ❌ Выключить в чате
+┣‣ `.aiclear` - 🗑️ Очистить историю
+
+⚡ **БЫСТРЫЕ ЗАПРОСЫ**
+┣‣ `.neiro <запрос>` - Мгновенный ответ
+
+📌 **ПРОДВИНУТЫЕ**
+┣‣ Параметр `temperature` (0.1-2.0)
+┣‣ Параметр `max_history` (1-100)
+┣‣ Редактируйте через JSON файл
+
+🌐 **API:** OnlySQ
+🤖 **Модель:** gpt-4o-mini'''
+        
+        msg = await event.respond(help_text)
+        await event.delete()
+        await register_command_message(chat_id, msg.id)
+        return True
 
 💡 **СТИЛЬ**
 ┣‣ `.aiconfig style casual` - 😎 Непринужденный
@@ -824,17 +859,19 @@ async def handle_aiconfig_commands(event, message_text):
     
     if message_text.lower() == '.aiconfig status':
         config = load_ai_config()
+        advanced = config.get('advanced', {})
         status_text = f'''🤖 **СТАТУС ИИ:**
 
-🔌 Состояние: {"✅ ВКЛЮЧЕН" if config['enabled'] else "❌ ВЫКЛЮЧЕН"}
-🤖 Авто-ответ: {"✅" if config['auto_reply_all'] else "❌"}
-🎤 Голосовые: {"✅" if config['voice_enabled'] else "❌"}
-📷 Фото: {"✅" if config['photo_enabled'] else "❌"}
-🔡 Маленькие буквы: {"✅" if config['lowercase'] else "❌"}
+🔌 Состояние: {"✅ ВКЛЮЧЕН" if config.get('enabled', False) else "❌ ВЫКЛЮЧЕН"}
+🧠 Личность: {config.get('personality', 'не задана')[:80]}...
 
-🎭 Стиль: **{config['style']}**
-📊 История: {config['max_history']} сообщений
-🧠 Личность: {config['personality'][:100]}...
+**ПРОДВИНУТЫЕ НАСТРОЙКИ:**
+🤖 Авто-ответ: {"✅" if advanced.get('auto_reply_all', False) else "❌"}
+🎤 Голосовые: {"✅" if advanced.get('voice_enabled', True) else "❌"}
+📷 Фото: {"✅" if advanced.get('photo_enabled', True) else "❌"}
+🔡 Маленькие буквы: {"✅" if advanced.get('lowercase', True) else "❌"}
+📊 История: {advanced.get('max_history', 20)} сообщений
+🌡️ Temperature: {advanced.get('temperature', 0.7)}
 
 🌐 **API:** OnlySQ
 🤖 **Модель:** {MODEL_NAME}
@@ -858,40 +895,48 @@ async def handle_aiconfig_commands(event, message_text):
     
     if message_text.lower() in ['.aiconfig auto on', '.aiconfig auto off']:
         config = load_ai_config()
-        config['auto_reply_all'] = 'on' in message_text.lower()
+        if 'advanced' not in config:
+            config['advanced'] = {}
+        config['advanced']['auto_reply_all'] = 'on' in message_text.lower()
         save_ai_config(config)
         
-        msg = await event.respond(f'{"✅ Авто-ответ всем включен" if config["auto_reply_all"] else "❌ Авто-ответ всем выключен"}')
+        msg = await event.respond(f'{"✅ Авто-ответ всем включен" if config["advanced"]["auto_reply_all"] else "❌ Авто-ответ всем выключен"}')
         await event.delete()
         await register_command_message(chat_id, msg.id)
         return True
     
     if message_text.lower() in ['.aiconfig voice on', '.aiconfig voice off']:
         config = load_ai_config()
-        config['voice_enabled'] = 'on' in message_text.lower()
+        if 'advanced' not in config:
+            config['advanced'] = {}
+        config['advanced']['voice_enabled'] = 'on' in message_text.lower()
         save_ai_config(config)
         
-        msg = await event.respond(f'{"✅ Обработка голосовых включена" if config["voice_enabled"] else "❌ Обработка голосовых выключена"}')
+        msg = await event.respond(f'{"✅ Обработка голосовых включена" if config["advanced"]["voice_enabled"] else "❌ Обработка голосовых выключена"}')
         await event.delete()
         await register_command_message(chat_id, msg.id)
         return True
     
     if message_text.lower() in ['.aiconfig photo on', '.aiconfig photo off']:
         config = load_ai_config()
-        config['photo_enabled'] = 'on' in message_text.lower()
+        if 'advanced' not in config:
+            config['advanced'] = {}
+        config['advanced']['photo_enabled'] = 'on' in message_text.lower()
         save_ai_config(config)
         
-        msg = await event.respond(f'{"✅ Обработка фото включена" if config["photo_enabled"] else "❌ Обработка фото выключена"}')
+        msg = await event.respond(f'{"✅ Обработка фото включена" if config["advanced"]["photo_enabled"] else "❌ Обработка фото выключена"}')
         await event.delete()
         await register_command_message(chat_id, msg.id)
         return True
     
     if message_text.lower() in ['.aiconfig lowercase on', '.aiconfig lowercase off']:
         config = load_ai_config()
-        config['lowercase'] = 'on' in message_text.lower()
+        if 'advanced' not in config:
+            config['advanced'] = {}
+        config['advanced']['lowercase'] = 'on' in message_text.lower()
         save_ai_config(config)
         
-        msg = await event.respond(f'{"✅ Маленькие буквы включены" if config["lowercase"] else "❌ Маленькие буквы выключены"}')
+        msg = await event.respond(f'{"✅ Маленькие буквы включены" if config["advanced"]["lowercase"] else "❌ Маленькие буквы выключены"}')
         await event.delete()
         await register_command_message(chat_id, msg.id)
         return True
@@ -946,20 +991,61 @@ async def handle_aiconfig_commands(event, message_text):
         await register_command_message(chat_id, msg.id)
         return True
     
+    if message_text.lower() == '.aiconfig export':
+        config = load_ai_config()
+        config_text = json.dumps(config, ensure_ascii=False, indent=2)
+        
+        # Создаем временный файл
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.json', delete=False) as f:
+            f.write(config_text)
+            temp_path = f.name
+        
+        try:
+            await client.send_file(chat_id, temp_path, caption='📤 **Экспорт конфигурации ИИ**\n\nЧтобы загрузить обратно, просто отправьте этот файл')
+            await event.delete()
+            os.unlink(temp_path)
+        except Exception as e:
+            msg = await event.respond(f'❌ Ошибка экспорта: {e}')
+            await event.delete()
+            await register_command_message(chat_id, msg.id)
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+        return True
+    
+    if message_text.lower() == '.aiconfig edit':
+        config = load_ai_config()
+        config_text = json.dumps(config, ensure_ascii=False, indent=2)
+        
+        help_msg = '''✏️ **РЕДАКТИРОВАНИЕ КОНФИГА**
+
+Текущий конфиг:
+```json
+{}```
+
+**Как редактировать:**
+1. Скопируйте JSON выше
+2. Отредактируйте параметры
+3. Сохраните в файл `.json`
+4. Отправьте файл сюда
+
+**Или используйте `.aiconfig export`** для скачивания файла'''.format(config_text)
+        
+        msg = await event.respond(help_msg)
+        await event.delete()
+        await register_command_message(chat_id, msg.id)
+        return True
+    
     if message_text.lower() == '.aiconfig reset':
         default_config = {
             'enabled': False,
-            'personality': 'отвечай как обычный человек, кратко и по делу. пиши с маленькой буквы',
-            'style': 'casual',
-            'lowercase': True,
-            'auto_reply_all': False,
-            'voice_enabled': True,
-            'photo_enabled': True,
-            'max_history': 20
+            'personality': 'отвечай как обычный человек, кратко и по делу. пиши с маленькой буквы'
         }
         save_ai_config(default_config)
         
-        msg = await event.respond('🔄 Конфигурация сброшена')
+        msg = await event.respond('🔄 Конфигурация сброшена до базовой (2 параметра)\n\n💡 Используйте `.aiconfig help` для настройки')
         await event.delete()
         await register_command_message(chat_id, msg.id)
         return True
@@ -969,9 +1055,7 @@ async def handle_aiconfig_commands(event, message_text):
 async def handle_mute_commands_new(event, message_text):
     """Обработка команд заглушки/разглушки"""
     chat_id = event.chat_id
-    
-    if chat_id != OWNER_ID:
-        return False
+    message_text = message_text.strip()
     
     await delete_previous_command(chat_id)
     
@@ -999,6 +1083,14 @@ async def handle_mute_commands_new(event, message_text):
             try:
                 reply_msg = await event.get_reply_message()
                 user_id = reply_msg.sender_id
+                
+                # Проверка что не заглушаем себя
+                if user_id == OWNER_ID:
+                    msg = await event.respond('❌ Нельзя заглушить самого себя!')
+                    await event.delete()
+                    await register_command_message(chat_id, msg.id)
+                    return True
+                
                 sender = await reply_msg.get_sender()
                 user_name = getattr(sender, 'first_name', 'Неизвестно')
                 if hasattr(sender, 'username') and sender.username:
@@ -1016,7 +1108,7 @@ async def handle_mute_commands_new(event, message_text):
                 await register_command_message(chat_id, msg.id)
                 return True
         else:
-            msg = await event.respond('❌ Ответьте на сообщение пользователя!')
+            msg = await event.respond('❌ Ответьте на сообщение пользователя командой `.замолчи`!')
             await event.delete()
             await register_command_message(chat_id, msg.id)
             return True
@@ -1700,7 +1792,8 @@ async def incoming_handler(event):
         if not config.get('enabled', False):
             return
         
-        if not config.get('auto_reply_all', False):
+        advanced = config.get('advanced', {})
+        if not advanced.get('auto_reply_all', False):
             return
         
         message_text = event.message.message or ''
@@ -1709,21 +1802,25 @@ async def incoming_handler(event):
             return
         
         # Обработка голосовых
-        if event.message.voice and config.get('voice_enabled', True):
-            voice_path = await save_media_file(event.message)
-            if voice_path:
-                transcription = await transcribe_voice(voice_path)
-                message_text = f"[голосовое: {transcription}]"
+        if event.message.voice:
+            advanced = config.get('advanced', {})
+            if advanced.get('voice_enabled', True):
+                voice_path = await save_media_file(event.message)
+                if voice_path:
+                    transcription = await transcribe_voice(voice_path)
+                    message_text = f"[голосовое: {transcription}]"
         
         # Обработка фото
-        if event.message.photo and config.get('photo_enabled', True):
-            photo_path = await save_media_file(event.message)
-            if photo_path:
-                description = await describe_photo(photo_path)
-                if message_text:
-                    message_text = f"{message_text} [фото: {description}]"
-                else:
-                    message_text = f"[фото: {description}]"
+        if event.message.photo:
+            advanced = config.get('advanced', {})
+            if advanced.get('photo_enabled', True):
+                photo_path = await save_media_file(event.message)
+                if photo_path:
+                    description = await describe_photo(photo_path)
+                    if message_text:
+                        message_text = f"{message_text} [фото: {description}]"
+                    else:
+                        message_text = f"[фото: {description}]"
         
         if not message_text:
             return
@@ -1820,7 +1917,9 @@ async def outgoing_handler(event):
             config = load_ai_config()
             
             # Выключаем авто-ответ
-            config['auto_reply_all'] = False
+            if 'advanced' not in config:
+                config['advanced'] = {}
+            config['advanced']['auto_reply_all'] = False
             save_ai_config(config)
             
             msg = await event.respond('❌ ИИ авто-ответ выключен глобально!\n\n💡 Включить: `.aiconfig auto on`')
