@@ -832,30 +832,6 @@ async def handle_aiconfig_commands(event, message_text):
         await event.delete()
         await register_command_message(chat_id, msg.id)
         return True
-
-💡 **СТИЛЬ**
-┣‣ `.aiconfig style casual` - 😎 Непринужденный
-┣‣ `.aiconfig style formal` - 🎩 Формальный
-┣‣ `.aiconfig style funny` - 😄 Смешной
-┣‣ `.aiconfig lowercase on/off` - 🔡 Маленькие буквы
-
-📝 **ЛИЧНОСТЬ**
-┣‣ `.aiconfig personality <текст>` - Задать личность
-
-🗑️ **УПРАВЛЕНИЕ**
-┣‣ `.aistop` - ❌ Выключить в чате
-┣‣ `.aiclear` - 🗑️ Очистить историю
-
-⚡ **БЫСТРЫЕ ЗАПРОСЫ**
-┣‣ `.neiro <запрос>` - Мгновенный ответ
-
-🌐 **API:** OnlySQ
-🤖 **Модель:** gpt-4o-mini'''
-        
-        msg = await event.respond(help_text)
-        await event.delete()
-        await register_command_message(chat_id, msg.id)
-        return True
     
     if message_text.lower() == '.aiconfig status':
         config = load_ai_config()
