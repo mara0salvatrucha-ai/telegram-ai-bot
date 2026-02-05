@@ -48,31 +48,53 @@ from telethon.errors import RPCError
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, InputPeerSelf
 
 # ============ КОНФИГУРАЦИЯ АККАУНТОВ ============
-# Можно редактировать напрямую или использовать переменные окружения
+# Функция для безопасного получения API_ID (возвращает None если не задан)
+def safe_get_api_id(env_var, default=None):
+    value = os.environ.get(env_var, '')
+    if value and value.strip():
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
-ACCOUNTS = [
+# Определяем все возможные аккаунты
+# Аккаунты с пустыми или отсутствующими данными будут пропущены автоматически
+ACCOUNT_CONFIGS = [
     {
         'name': 'Account1',
-        'api_id': int(os.environ.get('API_ID_1', '30612474')),
+        'api_id': safe_get_api_id('API_ID_1', 30612474),
         'api_hash': os.environ.get('API_HASH_1', 'e602dd5243cfe4ea3c165c2b3d49a810'),
         'phone': os.environ.get('PHONE_1', '+79786180647'),
         'session': os.environ.get('SESSION_1', 'session_account1'),
     },
     {
         'name': 'Account2',
-        'api_id': int(os.environ.get('API_ID_2', '39678712')),
+        'api_id': safe_get_api_id('API_ID_2', 39678712),
         'api_hash': os.environ.get('API_HASH_2', '3089ac53d532e75deb5dd641e4863d49'),
         'phone': os.environ.get('PHONE_2', '+919036205120'),
         'session': os.environ.get('SESSION_2', 'session_account2'),
     },
     {
         'name': 'Account3',
-        'api_id': int(os.environ.get('API_ID_3', '')),
+        # Оставьте пустым или заполните позже
+        'api_id': safe_get_api_id('API_ID_3'),
         'api_hash': os.environ.get('API_HASH_3', ''),
         'phone': os.environ.get('PHONE_3', ''),
         'session': os.environ.get('SESSION_3', 'session_account3'),
     },
 ]
+
+# Фильтруем только аккаунты с заполненными данными
+ACCOUNTS = [
+    acc for acc in ACCOUNT_CONFIGS 
+    if acc['api_id'] and acc['api_hash'] and acc['phone']
+]
+
+if not ACCOUNTS:
+    print('⚠️ ВНИМАНИЕ: Не найдено ни одного настроенного аккаунта!')
+    print('   Задайте переменные окружения API_ID_1, API_HASH_1, PHONE_1 и т.д.')
+    print()
 
 # OnlySQ API
 AI_API_URL = 'https://api.onlysq.ru/ai/openai/chat/completions'
