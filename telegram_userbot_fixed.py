@@ -19,7 +19,7 @@ PHONE = os.environ.get('PHONE', '+919036205120')
 # OnlySQ API (замена Grok)
 AI_API_URL = 'https://api.onlysq.ru/ai/openai/chat/completions'
 AI_API_KEY = os.environ.get('OPENAI_API_KEY', 'openai')  # API ключ для onlysq
-MODEL_NAME = 'gpt-5-chat'  # Модель для onlysq
+MODEL_NAME = 'gpt-4o-mini'  # Модель для onlysq
 
 # Файлы БД
 DB_FILE = 'messages.json'
@@ -394,12 +394,20 @@ def save_saver_config(config):
 def should_save_message(chat_id, is_private, is_group):
     config = load_saver_config()
     chat_id_str = str(chat_id)
-    if is_private and config['save_private']:
-        return True
-    if is_group and config['save_groups']:
-        return True
+    
+    # 1. Если чат явно добавлен в "каналы" (здесь это скорее список отслеживаемых чатов)
     if chat_id_str in config['save_channels']:
         return True
+    
+    # 2. Если включен глобальный режим для ЛС и это ЛС
+    if is_private and config['save_private']:
+        return True
+        
+    # 3. Если включен глобальный режим для групп и это группа
+    if is_group and config['save_groups']:
+        return True
+
+    # Иначе НЕ сохраняем (это реализует "записывать только... где он включен")
     return False
 
 def add_deleted_message(chat_id, message_data):
@@ -595,12 +603,39 @@ else:
 
 # ============ ФУНКЦИИ ИИ С ONLYSQ ============
 async def transcribe_voice(voice_path):
-    """Транскрибация голосового через API (заглушка)"""
+    """Транскрибация голосового через API (Audio Transcriptions)"""
     try:
-        return "[голосовое сообщение]"
+        if not os.path.exists(voice_path):
+            return "[файл не найден]"
+
+        # Формируем URL для транскрипции (стандартный OpenAI путь)
+        # Если base URL заканчивается на /v1 или /chat/completions, пытаемся адаптировать
+        base_url = AI_API_URL.replace('/chat/completions', '')
+        transcribe_url = f"{base_url}/audio/transcriptions"
+
+        data = aiohttp.FormData()
+        data.add_field('file',
+                       open(voice_path, 'rb'),
+                       filename=os.path.basename(voice_path),
+                       content_type='audio/ogg')
+        data.add_field('model', 'whisper-1')
+
+        headers = {
+            'Authorization': f'Bearer {AI_API_KEY}'
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(transcribe_url, data=data, headers=headers) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    return result.get('text', '[не удалось распознать]')
+                else:
+                    error_text = await resp.text()
+                    print(f'❌ Ошибка транскрипции ({resp.status}): {error_text}')
+                    return "[ошибка транскрипции]"
     except Exception as e:
         print(f'❌ Ошибка транскрипции: {e}')
-        return "[голосовое]"
+        return "[ошибка]"
 
 async def describe_photo(photo_path):
     """Описание фото через OnlySQ Vision API"""
@@ -615,7 +650,8 @@ async def describe_photo(photo_path):
         
         async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=30)) as session:
             payload = {
-                'model': 'gpt-5-chat',  # Vision модель
+            payload = {
+                'model': 'gpt-4o',  # Обновили на gpt-4o для надежности Vision
                 'messages': [
                     {
                         'role': 'user',
@@ -826,7 +862,7 @@ async def handle_aiconfig_commands(event, message_text):
 ┣‣ Редактируйте через JSON файл
 
 🌐 **API:** OnlySQ
-🤖 **Модель:** gpt-5-chat'''
+🤖 **Модель:** gpt-4o-mini'''
         
         msg = await event.respond(help_text)
         await event.delete()
@@ -1022,6 +1058,59 @@ async def handle_aiconfig_commands(event, message_text):
         save_ai_config(default_config)
         
         msg = await event.respond('🔄 Конфигурация сброшена до базовой (2 параметра)\n\n💡 Используйте `.aiconfig help` для настройки')
+        await event.delete()
+        await register_command_message(chat_id, msg.id)
+        return True
+
+    # Новые команды управления областями и расписанием
+    if message_text.lower() in ['.aiconfig private on', '.aiconfig private off']:
+        config = load_ai_config()
+        config['ai_private_enabled'] = 'on' in message_text.lower()
+        save_ai_config(config)
+        msg = await event.respond(f'{"✅" if config["ai_private_enabled"] else "❌"} ИИ в личных чатах')
+        await event.delete()
+        await register_command_message(chat_id, msg.id)
+        return True
+
+    if message_text.lower() in ['.aiconfig groups on', '.aiconfig groups off']:
+        config = load_ai_config()
+        config['ai_groups_enabled'] = 'on' in message_text.lower()
+        save_ai_config(config)
+        msg = await event.respond(f'{"✅" if config["ai_groups_enabled"] else "❌"} ИИ в группах')
+        await event.delete()
+        await register_command_message(chat_id, msg.id)
+        return True
+
+    if message_text.lower() == '.aiconfig add':
+        activate_chat(chat_id)
+        msg = await event.respond('✅ Чат добавлен в разрешенные для ИИ!')
+        await event.delete()
+        await register_command_message(chat_id, msg.id)
+        return True
+        
+    if message_text.lower() == '.aiconfig remove':
+        deactivate_chat(chat_id)
+        msg = await event.respond('❌ Чат удален из разрешенных для ИИ!')
+        await event.delete()
+        await register_command_message(chat_id, msg.id)
+        return True
+
+    if message_text.lower().startswith('.aiconfig schedule '):
+        try:
+            parts = message_text.split()
+            if len(parts) != 4:
+                raise ValueError
+            start = int(parts[2])
+            end = int(parts[3])
+            
+            config = load_ai_config()
+            config['schedule'] = {'start': start, 'end': end}
+            save_ai_config(config)
+            
+            msg = await event.respond(f'⏰ Расписание установлено: с {start}:00 до {end}:00')
+        except:
+            msg = await event.respond('❌ Формат: `.aiconfig schedule <начало> <конец>` (в часах, например `1 6`)')
+        
         await event.delete()
         await register_command_message(chat_id, msg.id)
         return True
@@ -1283,15 +1372,21 @@ async def handle_saver_commands(event, message_text):
         else:
             response = f'🗑️ **Последние {len(msgs)} удалённых:**\n\n'
             for i, m in enumerate(msgs, 1):
-                sender = m.get('sender_name', 'Неизвестно')
+                sender_name = m.get('sender_name', 'Неизвестно')
+                sender_id = m.get('sender_id', '?')
                 text_type = "📝"
                 if m.get('has_photo'): text_type = "🖼️"
                 elif m.get('has_video'): text_type = "🎥"
                 elif m.get('has_document'): text_type = "📄"
                 elif m.get('has_voice'): text_type = "🎤"
-                response += f'{i}. {text_type} {sender}\n'
-                response += f'   Чат: `{m.get("chat_id")}` | {m.get("deleted_at", "")[:16]}\n'
-                response += f'   {m.get("text", "")[:50]}\n\n'
+                
+                # Форматируем дату (она уже с +3 часа если сохранена новым кодом, 
+                # но для старых можно было бы конвертировать, но оставим как есть)
+                date_str = m.get("deleted_at", "")[:16].replace('T', ' ')
+                
+                response += f'{i}. {text_type} **{sender_name}** (`{sender_id}`)\n'
+                response += f'   🕒 {date_str}\n'
+                response += f'   💬 {m.get("text", "")[:50]}\n\n'
             msg = await event.respond(response)
         await event.delete()
         await register_command_message(chat_id, msg.id)
@@ -1392,43 +1487,66 @@ async def handle_saver_commands(event, message_text):
         try:
             parts = message_text.split()
             if len(parts) < 3:
-                msg = await event.respond('❌ Формат: `.saver user <номер>`')
+                msg = await event.respond('❌ Формат: `.saver user <ID или номер>`')
                 await event.delete()
                 await register_command_message(chat_id, msg.id)
                 return True
-                
-            index = int(parts[2]) - 1
-            users = load_temp_selection(chat_id)
-            if users is None:
-                msg = await event.respond('⚠️ Сначала вызовите `.saver all`')
-                await event.delete()
-                await register_command_message(chat_id, msg.id)
-                return True
-            if 0 <= index < len(users):
-                sender_id = users[index]['sender_id']
-                sender_name = users[index]['name']
-                msgs = get_deleted_messages(sender_id=sender_id)
-                if not msgs:
-                    text = f'📭 У **{sender_name}** нет удалённых'
-                else:
-                    text = f'🗑️ **{sender_name}** (ВСЕГО: {len(msgs)} шт.):\n\n'
-                    display_msgs = msgs[:30]
-                    for i, m in enumerate(display_msgs, 1):
-                        text_type = "📝"
-                        if m.get('has_photo'): text_type = "🖼️"
-                        elif m.get('has_video'): text_type = "🎥"
-                        elif m.get('has_document'): text_type = "📄"
-                        elif m.get('has_voice'): text_type = "🎤"
-                        text += f'{i}. {text_type} [{m.get("deleted_at", "")[:16]}]\n'
-                        text += f'   Чат: `{m.get("chat_id")}`\n'
-                        text += f'   {m.get("text", "")[:50]}\n\n'
-                    if len(msgs) > 30:
-                        text += f'\n...ещё {len(msgs)-30} сообщений\n'
-                msg = await event.respond(text)
-            else:
-                msg = await event.respond('❌ Неверный номер')
             
+            query = parts[2]
+            
+            # Попытка найти по ID (если введено число более 5 знаков, считаем ID)
+            if query.isdigit() and len(query) > 5:
+                sender_id = int(query)
+                msgs = get_deleted_messages(sender_id=sender_id)
+                sender_name = f"ID {sender_id}"
+                # Пытаемся найти имя в базе
+                for m in msgs:
+                    if m.get('sender_name'):
+                        sender_name = m.get('sender_name')
+                        break
+            else:
+                # Иначе работаем как с индексом из списка
+                index = int(query) - 1
+                users = load_temp_selection(chat_id)
+                if users is None:
+                    # Если списка нет, но ввели маленькое число - ошибка, или пробуем как ID
+                     sender_id = int(query) # fallback если юзер ввел 1 как ID (странно, но пусть)
+                     msgs = get_deleted_messages(sender_id=sender_id)
+                     sender_name = f"ID {sender_id}"
+                else: 
+                    if 0 <= index < len(users):
+                        sender_id = users[index]['sender_id']
+                        sender_name = users[index]['name']
+                        msgs = get_deleted_messages(sender_id=sender_id)
+                    else:
+                        msg = await event.respond('❌ Неверный номер')
+                        await event.delete()
+                        await register_command_message(chat_id, msg.id)
+                        return True
+
+            if not msgs:
+                text = f'📭 У **{sender_name}** нет удалённых'
+            else:
+                text = f'🗑️ **{sender_name}** (`{sender_id}`)\n(ВСЕГО: {len(msgs)} шт.):\n\n'
+                display_msgs = msgs[:20]
+                for i, m in enumerate(display_msgs, 1):
+                    text_type = "📝"
+                    if m.get('has_photo'): text_type = "🖼️"
+                    elif m.get('has_video'): text_type = "🎥"
+                    elif m.get('has_document'): text_type = "📄"
+                    elif m.get('has_voice'): text_type = "🎤"
+                    
+                    date_str = m.get("deleted_at", "")[:16].replace('T', ' ')
+                    
+                    text += f'{i}. {text_type} [{date_str}]\n'
+                    text += f'   💬 {m.get("text", "")[:50]}\n\n'
+                if len(msgs) > 20:
+                    text += f'\n...ещё {len(msgs)-20} сообщений\n'
+            msg = await event.respond(text)
+            
+            # Удаляем выбор если был
             user_selection_state.pop(str(chat_id), None)
+            
             await event.delete()
             await register_command_message(chat_id, msg.id)
             return True
@@ -1717,7 +1835,8 @@ async def deleted_message_handler(event):
             message_data = get_stored_message(chat_id, message_id)
             if message_data:
                 real_chat_id = message_data.get('chat_id')
-                message_data['deleted_at'] = datetime.now().isoformat()
+                # Добавляем +3 часа к времени удаления
+                message_data['deleted_at'] = (datetime.now() + timedelta(hours=3)).isoformat()
                 
                 config = load_saver_config()
                 should_forward = False
@@ -1768,8 +1887,39 @@ async def incoming_handler(event):
         if not config.get('enabled', False):
             return
         
+        # Проверка расписания
+        schedule = config.get('schedule', {'start': 0, 'end': 0})
+        if schedule['start'] != schedule['end']:
+            current_hour = datetime.now().hour
+            # Простая логика: если start < end (например 10-20), то start <= curr < end
+            # Если start > end (например 22-06), то curr >= start ИЛИ curr < end
+            is_in_schedule = False
+            if schedule['start'] < schedule['end']:
+                if schedule['start'] <= current_hour < schedule['end']:
+                    is_in_schedule = True
+            else:
+                if current_hour >= schedule['start'] or current_hour < schedule['end']:
+                    is_in_schedule = True
+            
+            if not is_in_schedule:
+                return
+
         advanced = config.get('advanced', {})
-        if not advanced.get('auto_reply_all', False):
+        is_private = event.is_private
+        is_group = event.is_group
+        
+        allowed = False
+        # Глобальное авто-отвечание (старая настройка, оставим как мастер-свитч если надо, или просто как одну из опций)
+        if advanced.get('auto_reply_all', False): allowed = True
+        
+        # Новые настройки областей
+        if is_private and config.get('ai_private_enabled', False): allowed = True
+        if is_group and config.get('ai_groups_enabled', False): allowed = True
+        
+        # Индивидуальное разрешение чата
+        if is_chat_active(chat_id): allowed = True
+        
+        if not allowed:
             return
         
         message_text = event.message.message or ''
