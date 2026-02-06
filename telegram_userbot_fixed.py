@@ -650,7 +650,6 @@ async def describe_photo(photo_path):
         
         async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=30)) as session:
             payload = {
-            payload = {
                 'model': 'gpt-4o',  # Обновили на gpt-4o для надежности Vision
                 'messages': [
                     {
@@ -1890,7 +1889,9 @@ async def incoming_handler(event):
         # Проверка расписания
         schedule = config.get('schedule', {'start': 0, 'end': 0})
         if schedule['start'] != schedule['end']:
-            current_hour = datetime.now().hour
+            # Учитываем +3 часа к серверному времени по просьбе пользователя
+            current_hour = (datetime.now() + timedelta(hours=3)).hour
+            
             # Простая логика: если start < end (например 10-20), то start <= curr < end
             # Если start > end (например 22-06), то curr >= start ИЛИ curr < end
             is_in_schedule = False
