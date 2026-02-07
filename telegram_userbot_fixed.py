@@ -638,7 +638,7 @@ async def transcribe_voice(voice_path):
             'Authorization': f'Bearer {AI_API_KEY}'
         }
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
             async with session.post(transcribe_url, data=data, headers=headers) as resp:
                 if resp.status == 200:
                     result = await resp.json()
@@ -662,7 +662,7 @@ async def describe_photo(photo_path):
         
         connector = aiohttp.TCPConnector(ssl=False)
         
-        async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=30)) as session:
+        async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=120)) as session:
             payload = {
                 'model': 'gpt-4o',  # Обновили на gpt-4o для надежности Vision
                 'messages': [
