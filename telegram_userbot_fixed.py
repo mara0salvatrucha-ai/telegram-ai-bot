@@ -15,7 +15,7 @@ from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, InputPeer
 API_ID = int(os.environ.get('API_ID', '39678712'))
 API_HASH = os.environ.get('API_HASH', '3089ac53d532e75deb5dd641e4863d49')
 PHONE = os.environ.get('PHONE', '+919036205120')
-BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE') # Вставьте токен от @BotFather сюда
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8593923331:AAHJcTOz2-ePSUxApx_cSuzdye3W0aIomJE') # Вставьте токен от @BotFather сюда
 
 # OnlySQ API (замена Grok)
 AI_API_URL = 'https://api.onlysq.ru/ai/openai/chat/completions'
