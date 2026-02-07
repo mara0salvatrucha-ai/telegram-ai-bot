@@ -7,7 +7,7 @@ import ssl
 from datetime import datetime, timedelta
 from pathlib import Path
 import aiohttp
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, Button
 from telethon.errors import RPCError
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, InputPeerSelf
 
@@ -15,6 +15,7 @@ from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, InputPeer
 API_ID = int(os.environ.get('API_ID', '39678712'))
 API_HASH = os.environ.get('API_HASH', '3089ac53d532e75deb5dd641e4863d49')
 PHONE = os.environ.get('PHONE', '+919036205120')
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8593923331:AAHJcTOz2-ePSUxApx_cSuzdye3W0aIomJE') # Вставьте токен от @BotFather сюда
 
 # OnlySQ API (замена Grok)
 AI_API_URL = 'https://api.onlysq.ru/ai/openai/chat/completions'
@@ -805,6 +806,144 @@ def clear_chat_history(chat_id):
         save_db(db)
 
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+bot = TelegramClient('bot_session', API_ID, API_HASH) # Клиент для управления
+
+# ============ ЛОГИКА КОНТРОЛЛЕРА (БОТА) ============
+
+@bot.on(events.NewMessage(pattern='/start'))
+async def bot_start_handler(event):
+    if OWNER_ID and event.sender_id != OWNER_ID:
+        await event.respond('❌ Доступ запрещен! Я управляю только моим создателем.')
+        return
+        
+    await show_main_menu(event)
+
+async def show_main_menu(event):
+    buttons = [
+        [Button.inline('🤖 Настройки ИИ', b'menu_ai'), Button.inline('💾 Сохранение', b'menu_saver')],
+        [Button.inline('🎬 Анимации', b'menu_anim'), Button.inline('🔇 Заглушка', b'menu_mute')],
+        [Button.inline('📊 Статус системы', b'sys_status')]
+    ]
+    
+    text = "**🎮 ПАНЕЛЬ УПРАВЛЕНИЯ USERBOT**\n\nВыберите категорию настроек:"
+    
+    if hasattr(event, 'edit'):
+        await event.edit(text, buttons=buttons)
+    else:
+        await event.respond(text, buttons=buttons)
+
+@bot.on(events.CallbackQuery)
+async def bot_callback_handler(event):
+    if OWNER_ID and event.sender_id != OWNER_ID:
+        await event.answer('❌ Доступ запрещен!', alert=True)
+        return
+    
+    data = event.data.decode('utf-8')
+    
+    # --- НАВИГАЦИЯ ---
+    if data == 'main_menu':
+        await show_main_menu(event)
+        return
+        
+    # --- МЕНЮ ИИ ---
+    if data == 'menu_ai':
+        config = load_ai_config()
+        adv = config.get('advanced', {})
+        
+        status = "✅ ВКЛ" if config.get('enabled') else "❌ ВЫКЛ"
+        btn_toggle = Button.inline(f'Switch: {status}', b'ai_toggle_main')
+        
+        voice_st = "✅" if adv.get('voice_enabled', True) else "❌"
+        photo_st = "✅" if adv.get('photo_enabled', True) else "❌"
+        auto_st = "✅" if adv.get('auto_reply_all', False) else "❌"
+        
+        buttons = [
+            [btn_toggle],
+            [Button.inline(f'🎤 Голосовые: {voice_st}', b'ai_toggle_voice'), Button.inline(f'📷 Фото: {photo_st}', b'ai_toggle_photo')],
+            [Button.inline(f'🔄 Авто-ответ всем: {auto_st}', b'ai_toggle_auto')],
+            [Button.inline('🔙 Назад', b'main_menu')]
+        ]
+        await event.edit(f"🤖 **Настройки ИИ**\nМодель: `{MODEL_NAME}`\nСтатус: {status}", buttons=buttons)
+    
+    elif data == 'ai_toggle_main':
+        config = load_ai_config()
+        config['enabled'] = not config.get('enabled', False)
+        save_ai_config(config)
+        await bot_callback_handler(event) # Refresh
+        
+    elif data == 'ai_toggle_voice':
+        config = load_ai_config()
+        if 'advanced' not in config: config['advanced'] = {}
+        config['advanced']['voice_enabled'] = not config['advanced'].get('voice_enabled', True)
+        save_ai_config(config)
+        await bot_callback_handler(event) # Refresh (нужен хак, так как data изменился, но для простоты перевызовем меню)
+        # Hack: подменяем data чтобы вернуться в меню
+        event.data = b'menu_ai'
+        await bot_callback_handler(event)
+        
+    elif data == 'ai_toggle_photo':
+        config = load_ai_config()
+        if 'advanced' not in config: config['advanced'] = {}
+        config['advanced']['photo_enabled'] = not config['advanced'].get('photo_enabled', True)
+        save_ai_config(config)
+        event.data = b'menu_ai'
+        await bot_callback_handler(event)
+        
+    elif data == 'ai_toggle_auto':
+        config = load_ai_config()
+        if 'advanced' not in config: config['advanced'] = {}
+        config['advanced']['auto_reply_all'] = not config['advanced'].get('auto_reply_all', False)
+        save_ai_config(config)
+        event.data = b'menu_ai'
+        await bot_callback_handler(event)
+
+    # --- МЕНЮ SAVER ---
+    elif data == 'menu_saver':
+        config = load_saver_config()
+        
+        buttons = [
+            [Button.inline(f'📝 Текст: {"✅" if config.get("save_text", True) else "❌"}', b'svr_text'),
+             Button.inline(f'🖼️ Медиа: {"✅" if config.get("save_media", True) else "❌"}', b'svr_media')],
+            [Button.inline(f'🎤 ГС: {"✅" if config.get("save_voice", True) else "❌"}', b'svr_voice'),
+             Button.inline(f'⏱️ TTL: {"✅" if config.get("save_ttl_media", False) else "❌"}', b'svr_ttl')],
+            [Button.inline(f'🔓 ЛС: {"✅" if config.get("save_private", False) else "❌"}', b'svr_priv'),
+             Button.inline(f'👥 Группы: {"✅" if config.get("save_groups", False) else "❌"}', b'svr_grp')],
+            [Button.inline('🔙 Назад', b'main_menu')]
+        ]
+        await event.edit("💾 **Настройки сохранения**", buttons=buttons)
+
+    elif data.startswith('svr_'):
+        config = load_saver_config()
+        key_map = {
+            'svr_text': 'save_text', 'svr_media': 'save_media',
+            'svr_voice': 'save_voice', 'svr_ttl': 'save_ttl_media',
+            'svr_priv': 'save_private', 'svr_grp': 'save_groups'
+        }
+        key = key_map.get(data)
+        if key:
+            # Для большинства True по умолчанию, кроме TTL и глобальных, но get обрабатывает
+            default = True
+            if key in ['save_ttl_media', 'save_private', 'save_groups']: default = False
+            
+            config[key] = not config.get(key, default)
+            save_saver_config(config)
+            
+        event.data = b'menu_saver'
+        await bot_callback_handler(event)
+
+    # --- МЕНЮ ANIMATION/MUTE ---
+    elif data == 'menu_anim':
+        await event.edit("🎬 **Анимации**\nУправляйте анимациями через команды `.anim` в чате, так удобнее.", buttons=[[Button.inline('🔙 Назад', b'main_menu')]])
+        
+    elif data == 'menu_mute':
+        muted = get_all_muted_users()
+        cnt = len(muted)
+        await event.edit(f"🔇 **Заглушка**\nЗаглушено пользователей: {cnt}\n\nДля управления используйте `.замолчи` / `.говори` в чатах.", buttons=[[Button.inline('🔙 Назад', b'main_menu')]])
+
+    elif data == 'sys_status':
+        import platform, python_version
+        sys_info = f"💻 OS: {platform.system()} {platform.release()}\n🐍 Python: {platform.python_version()}\n🤖 Telethon: {events.__module__}"
+        await event.answer(sys_info, alert=True)
 
 async def delete_previous_command(chat_id):
     """Удалить предыдущее командное сообщение"""
@@ -2154,7 +2293,29 @@ async def main():
         print('   • API: OnlySQ вместо Grok')
         print('\n🎧 Слушаю...\n')
         
-        await client.run_until_disconnected()
+        if not BOT_TOKEN or BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+            print('\n⚠️ ВНИМАНИЕ: BOT_TOKEN не указан!')
+            print('   Управляющий бот не будет запущен.')
+            print('   Чтобы включить его, отредактируйте скрипт и вставьте токен в начале файла.')
+            await client.run_until_disconnected()
+        else:
+            print(f'🤖 Запуск управляющего бота...')
+            try:
+                await bot.start(bot_token=BOT_TOKEN)
+                bot_me = await bot.get_me()
+                print(f'✅ Бот запущен: @{bot_me.username}')
+                print(f'   Напишите /start в ЛС боту для управления.')
+                
+                # Запускаем оба клиента
+                await asyncio.gather(
+                    client.run_until_disconnected(),
+                    bot.run_until_disconnected()
+                )
+            except Exception as e:
+                print(f'❌ Ошибка запуска бота: {e}')
+                print('   Userbot продолжает работу без бота.')
+                await client.run_until_disconnected()
+            
     except Exception as e:
         print(f'❌ Ошибка: {e}')
         import traceback
