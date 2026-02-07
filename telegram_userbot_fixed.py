@@ -19,7 +19,7 @@ PHONE = os.environ.get('PHONE', '+919036205120')
 # OnlySQ API (замена Grok)
 AI_API_URL = 'https://api.onlysq.ru/ai/openai/chat/completions'
 AI_API_KEY = os.environ.get('OPENAI_API_KEY', 'openai')  # API ключ для onlysq
-MODEL_NAME = 'gpt-5.2-chat'  # Модель для onlysq
+MODEL_NAME = 'gpt-4o-mini'  # Модель для onlysq
 
 # Файлы БД
 DB_FILE = 'messages.json'
@@ -560,7 +560,11 @@ async def save_media_file(message, media_folder=MEDIA_FOLDER):
         if message.photo:
             ext, mtype = 'jpg', 'photo'
         elif message.video:
-            ext, mtype = 'mp4', 'video'
+            # Проверяем, кружочек ли это (video note)
+            if hasattr(message.media, 'video_note') or (hasattr(message, 'video_note') and message.video_note):
+                 ext, mtype = 'mp4', 'videonote' # Сохраняем как mp4, но помечаем как videonote
+            else:
+                 ext, mtype = 'mp4', 'video'
         elif message.voice:
             ext, mtype = 'ogg', 'voice'
         elif message.document:
@@ -581,6 +585,8 @@ async def save_media_file(message, media_folder=MEDIA_FOLDER):
         return filepath
     except Exception as e:
         print(f'⚠️ Ошибка сохранения медиа: {e}')
+        import traceback
+        traceback.print_exc()
         return None
 
 db = load_db()
@@ -603,21 +609,29 @@ else:
 
 # ============ ФУНКЦИИ ИИ С ONLYSQ ============
 async def transcribe_voice(voice_path):
-    """Транскрибация голосового через API (Audio Transcriptions)"""
+    """Транскрибация голосового/видеосообщения через API (Audio Transcriptions)"""
     try:
         if not os.path.exists(voice_path):
             return "[файл не найден]"
 
         # Формируем URL для транскрипции (стандартный OpenAI путь)
-        # Если base URL заканчивается на /v1 или /chat/completions, пытаемся адаптировать
         base_url = AI_API_URL.replace('/chat/completions', '')
         transcribe_url = f"{base_url}/audio/transcriptions"
+
+        # Определяем content-type
+        content_type = 'audio/ogg'
+        if voice_path.lower().endswith('.mp4'):
+            content_type = 'audio/mp4' # Для видеосообщений
+        elif voice_path.lower().endswith('.mp3'):
+             content_type = 'audio/mpeg'
+        elif voice_path.lower().endswith('.wav'):
+             content_type = 'audio/wav'
 
         data = aiohttp.FormData()
         data.add_field('file',
                        open(voice_path, 'rb'),
                        filename=os.path.basename(voice_path),
-                       content_type='audio/ogg')
+                       content_type=content_type)
         data.add_field('model', 'whisper-1')
 
         headers = {
@@ -632,10 +646,10 @@ async def transcribe_voice(voice_path):
                 else:
                     error_text = await resp.text()
                     print(f'❌ Ошибка транскрипции ({resp.status}): {error_text}')
-                    return "[ошибка транскрипции]"
+                    return f"[ошибка транскрипции: {resp.status}]"
     except Exception as e:
         print(f'❌ Ошибка транскрипции: {e}')
-        return "[ошибка]"
+        return f"[ошибка: {str(e)}]"
 
 async def describe_photo(photo_path):
     """Описание фото через OnlySQ Vision API"""
@@ -650,7 +664,7 @@ async def describe_photo(photo_path):
         
         async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=30)) as session:
             payload = {
-                'model': 'gpt-5.2-chat',  # Обновили на gpt-5.2-chat для надежности Vision
+                'model': 'gpt-4o',  # Обновили на gpt-4o для надежности Vision
                 'messages': [
                     {
                         'role': 'user',
@@ -682,10 +696,14 @@ async def describe_photo(photo_path):
                     content = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
                     return content or "[фотография]"
                 else:
-                    return "[фотография]"
+                    error_text = await resp.text()
+                    print(f'❌ Vision API ошибка {resp.status}: {error_text}')
+                    return f"[ошибка анализа фото: {resp.status}]"
     except Exception as e:
         print(f'❌ Ошибка описания фото: {e}')
-        return "[фотография]"
+        import traceback
+        traceback.print_exc()
+        return f"[ошибка: {str(e)}]"
 
 async def get_ai_response(messages, config=None):
     """Получение ответа от ИИ через OnlySQ API"""
@@ -861,7 +879,7 @@ async def handle_aiconfig_commands(event, message_text):
 ┣‣ Редактируйте через JSON файл
 
 🌐 **API:** OnlySQ
-🤖 **Модель:** gpt-5.2-chat'''
+🤖 **Модель:** gpt-4o-mini'''
         
         msg = await event.respond(help_text)
         await event.delete()
@@ -1936,6 +1954,15 @@ async def incoming_handler(event):
                 if voice_path:
                     transcription = await transcribe_voice(voice_path)
                     message_text = f"[голосовое: {transcription}]"
+
+        # Обработка видеосообщений (кружочки)
+        if hasattr(event.message, 'video_note') and event.message.video_note:
+            advanced = config.get('advanced', {})
+            if advanced.get('voice_enabled', True): # Используем ту же настройку что и для голосовых
+                 video_note_path = await save_media_file(event.message)
+                 if video_note_path:
+                     transcription = await transcribe_voice(video_note_path)
+                     message_text = f"[видеосообщение: {transcription}]"
         
         # Обработка фото
         if event.message.photo:
