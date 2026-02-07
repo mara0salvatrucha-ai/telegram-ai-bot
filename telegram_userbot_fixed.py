@@ -19,7 +19,7 @@ PHONE = os.environ.get('PHONE', '+919036205120')
 # OnlySQ API (замена Grok)
 AI_API_URL = 'https://api.onlysq.ru/ai/openai/chat/completions'
 AI_API_KEY = os.environ.get('OPENAI_API_KEY', 'openai')  # API ключ для onlysq
-MODEL_NAME = 'gpt-4o-mini'  # Модель для onlysq
+MODEL_NAME = 'gpt-5.2-chat'  # Модель для onlysq
 
 # Файлы БД
 DB_FILE = 'messages.json'
@@ -664,7 +664,7 @@ async def describe_photo(photo_path):
         
         async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=120)) as session:
             payload = {
-                'model': 'gpt-4o',  # Обновили на gpt-4o для надежности Vision
+                'model': 'gpt-5.2-chat',  # Используем основную доступную модель для Vision
                 'messages': [
                     {
                         'role': 'user',
