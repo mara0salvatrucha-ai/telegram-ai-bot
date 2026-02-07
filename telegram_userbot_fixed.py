@@ -19,7 +19,7 @@ PHONE = os.environ.get('PHONE', '+919036205120')
 # OnlySQ API (замена Grok)
 AI_API_URL = 'https://api.onlysq.ru/ai/openai/chat/completions'
 AI_API_KEY = os.environ.get('OPENAI_API_KEY', 'openai')  # API ключ для onlysq
-MODEL_NAME = 'gpt-4o-mini'  # Модель для onlysq
+MODEL_NAME = 'gpt-5.2-chat'  # Модель для onlysq
 
 # Файлы БД
 DB_FILE = 'messages.json'
@@ -650,7 +650,7 @@ async def describe_photo(photo_path):
         
         async with aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=30)) as session:
             payload = {
-                'model': 'gpt-4o',  # Обновили на gpt-4o для надежности Vision
+                'model': 'gpt-5.2-chat',  # Обновили на gpt-5.2-chat для надежности Vision
                 'messages': [
                     {
                         'role': 'user',
@@ -861,7 +861,7 @@ async def handle_aiconfig_commands(event, message_text):
 ┣‣ Редактируйте через JSON файл
 
 🌐 **API:** OnlySQ
-🤖 **Модель:** gpt-4o-mini'''
+🤖 **Модель:** gpt-5.2-chat'''
         
         msg = await event.respond(help_text)
         await event.delete()
