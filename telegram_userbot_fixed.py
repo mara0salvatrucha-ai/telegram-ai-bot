@@ -974,7 +974,12 @@ async def show_about_menu(event):
     ]
     
     preview = config.get('text', 'No text set')[:100]
-    await event.edit(f"👋 **𝐁𝐈𝐎 / 𝐀𝐔𝐓𝐎-𝐑𝐄𝐏𝐋𝐘**\n\n📜 **𝐓𝐞𝐱𝐭:**\n`{preview}`\n\n🖼️ **𝐌𝐞𝐝𝐢𝐚:** {'✅ Set' if config.get('media_path') else '❌ None'}\n👀 **𝐒𝐞𝐞𝐧:** {len(config.get('seen_users', []))} users", buttons=buttons)
+    text = f"👋 **𝐁𝐈𝐎 / 𝐀𝐔𝐓𝐎-𝐑𝐄𝐏𝐋𝐘**\n\n📜 **𝐓𝐞𝐱𝐭:**\n`{preview}`\n\n🖼️ **𝐌𝐞𝐝𝐢𝐚:** {'✅ Set' if config.get('media_path') else '❌ None'}\n👀 **𝐒𝐞𝐞𝐧:** {len(config.get('seen_users', []))} users"
+    
+    if hasattr(event, 'data') and event.data:
+        await event.edit(text, buttons=buttons)
+    else:
+        await event.respond(text, buttons=buttons)
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def bot_start_handler(event):
@@ -2219,7 +2224,9 @@ async def incoming_handler(event):
         if is_chat_active(chat_id): allowed = True
         
         # --- Check for Bio Auto-Reply ---
-        if is_private and not allowed: # Only checking if AI didn't already handle it
+        # Выполняем Bio независимо от AI, но только если это ЛС
+        bio_sent = False
+        if is_private:
             about_config = load_about_config()
             if about_config.get('enabled'):
                  seen = about_config.get('seen_users', [])
@@ -2236,6 +2243,11 @@ async def incoming_handler(event):
                      seen.append(sender_id)
                      about_config['seen_users'] = seen
                      save_about_config(about_config)
+                     bio_sent = True
+        
+        # Если отправили Bio, не даем ИИ отвечать сразу же (чтобы не дублировать)
+        if bio_sent:
+            return
         
         if not allowed:
             return
