@@ -42,10 +42,12 @@ OWNER_ID = None
 BOT_ID = None
 
 last_command_message = {}
-COMMAND_PREFIXES = ['.saver', '.deleted', '.aiconfig', '.aistop', '.aiclear', '.anim', '.замолчи', '.говори', '.del', '.список', '.neiro']
+COMMAND_PREFIXES = ['.saver', '.deleted', '.aiconfig', '.aistop', '.aiclear', '.anim', '.замолчи', '.говори', '.del', '.список', '.neiro', '.bio']
 
 # Глобальное состояние
 user_selection_state = {}
+last_menu_msg = {} # Для очистки старых меню
+
 
 # ============ ФУНКЦИИ БД ============
 def load_db():
@@ -131,16 +133,22 @@ def save_about_config(config):
     except:
         pass
 
-def mute_user_new(user_id, user_name, chat_id=None):
-    db = load_muted_users_db()
-    user_key = str(user_id)
-    db[user_key] = {
-        'user_name': user_name,
-        'user_id': user_id,
-        'muted_at': datetime.now().isoformat(),
-        'chat_id': chat_id
-    }
     save_muted_users_db(db)
+
+def load_about_config():
+    if os.path.exists(ABOUT_CONFIG_FILE):
+        try:
+            with open(ABOUT_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    return {
+        'enabled': False,
+        'text': '👋 Привет! Я сейчас занят, отвечу позже.',
+        'media_path': None,
+        'audio_path': None,
+        'seen_users': []
+    }
 
 def unmute_user_new(user_id):
     db = load_muted_users_db()
@@ -849,8 +857,9 @@ async def show_main_menu(event):
     
     if hasattr(event, 'data') and event.data:
         await event.edit(text, buttons=buttons)
+        return None # We edited, so checking msg id specific is hard without return, but usually we don't clear history on nav
     else:
-        await event.respond(text, buttons=buttons)
+        return await event.respond(text, buttons=buttons)
 
 async def show_ai_menu(event):
     config = load_ai_config()
@@ -968,23 +977,52 @@ async def show_about_menu(event):
     buttons = [
         [Button.inline(f'⚡ 𝐄𝐧𝐚𝐛𝐥𝐞𝐝: {status}', b'abt_toggle')],
         [Button.inline('✏️ 𝐄𝐝𝐢𝐭 𝐓𝐞𝐱𝐭', b'abt_edit_text')],
-        [Button.inline('🖼️ 𝐒𝐞𝐭 𝐌𝐞𝐝𝐢𝐚 (Repy to this)', b'abt_set_media')],
+        [Button.inline('🖼️ 𝐒𝐞𝐭 𝐌𝐞𝐝𝐢𝐚 (Reply)', b'abt_set_media'), Button.inline('🎵 𝐒𝐞𝐭 𝐀𝐮𝐝𝐢𝐨 (Reply)', b'abt_set_audio')],
         [Button.inline('🧹 𝐑𝐞𝐬𝐞𝐭 𝐒𝐞𝐞𝐧 𝐋𝐢𝐬𝐭', b'abt_reset')],
         [Button.inline('🔙 𝐁𝐚𝐜𝐤', b'main_menu')]
     ]
     
     preview = config.get('text', 'No text set')[:100]
-    text = f"👋 **𝐁𝐈𝐎 / 𝐀𝐔𝐓𝐎-𝐑𝐄𝐏𝐋𝐘**\n\n📜 **𝐓𝐞𝐱𝐭:**\n`{preview}`\n\n🖼️ **𝐌𝐞𝐝𝐢𝐚:** {'✅ Set' if config.get('media_path') else '❌ None'}\n👀 **𝐒𝐞𝐞𝐧:** {len(config.get('seen_users', []))} users"
+    media_status = '✅ Set' if config.get('media_path') else '❌ None'
+    audio_status = '✅ Set' if config.get('audio_path') else '❌ None'
     
+    text = f"👋 **𝐁𝐈𝐎 / 𝐀𝐔𝐓𝐎-𝐑𝐄𝐏𝐋𝐘**\n\n📜 **𝐓𝐞𝐱𝐭:**\n`{preview}`\n\n🖼️ **𝐌𝐞𝐝𝐢𝐚:** {media_status}\n🎵 **𝐀𝐮𝐝𝐢𝐨:** {audio_status}\n👀 **𝐒𝐞𝐞𝐧:** {len(config.get('seen_users', []))} users"
+    
+    # Logic to delete old message and send new one if needed, or edit if safe
+    # But for menu navigation we usually edit.
     if hasattr(event, 'data') and event.data:
-        await event.edit(text, buttons=buttons)
+        try:
+             await event.edit(text, buttons=buttons)
+        except:
+             await event.respond(text, buttons=buttons)
     else:
-        await event.respond(text, buttons=buttons)
+        # If called from a command or reply, send new
+        msg = await event.respond(text, buttons=buttons)
+        # Try to track this message if possible, but for now we trust the flow
+        if event.chat_id:
+            last_menu_msg[event.chat_id] = msg.id
 
 @bot.on(events.NewMessage(pattern='/start'))
 async def bot_start_handler(event):
     if OWNER_ID and event.sender_id != OWNER_ID: return
-    await show_main_menu(event)
+    
+    # 1. Delete user's /start command
+    try:
+        await event.delete()
+    except:
+        pass
+        
+    # 2. Delete previous menu message if exists
+    if event.chat_id in last_menu_msg:
+        try:
+            await bot.delete_messages(event.chat_id, last_menu_msg[event.chat_id])
+        except:
+            pass
+            
+    # 3. Send new menu
+    msg = await show_main_menu(event) # show_main_menu now returns the message object (we need to modify it)
+    if msg:
+        last_menu_msg[event.chat_id] = msg.id
 
 @bot.on(events.CallbackQuery)
 async def bot_callback_handler(event):
@@ -1050,6 +1088,8 @@ async def bot_callback_handler(event):
         await event.respond("✏️ **Send me the new Bio text now.**\n(Reply to this message)")
     elif data == 'abt_set_media':
         await event.respond("🖼️ **Send me the photo/gif/video now.**\n(Reply to this message)")
+    elif data == 'abt_set_audio':
+        await event.respond("🎵 **Send me the Audio/Voice now.**\n(Reply to this message)")
 
 @bot.on(events.NewMessage(incoming=True))
 async def bot_message_handler(event):
@@ -1087,6 +1127,30 @@ async def bot_message_handler(event):
                 msg = await event.respond("❌ No media found!")
                 await asyncio.sleep(2)
                 await msg.delete()
+        elif 'Send me the Audio/Voice' in reply.text:
+            if event.media:
+                # Определяем расширение
+                ext = 'ogg'
+                if event.voice: ext = 'ogg'
+                elif event.audio: ext = 'mp3'
+                
+                path = await event.download_media(file=f'saved_media/bio_audio.{ext}')
+                c = load_about_config()
+                c['audio_path'] = path
+                save_about_config(c)
+                await event.delete() # Удаляем сообщение пользователя
+                try:
+                    await reply.delete() # Удаляем запрос бота
+                except:
+                    pass
+                msg = await event.respond("✅ **Bio Audio Updated!**")
+                await show_about_menu(event) # Показываем обновленное меню
+                # Update global last menu msg if possible, but complex here.
+                # Cleaner just to let the menu redraw.
+            else:
+                msg = await event.respond("❌ No audio found!")
+                await asyncio.sleep(2)
+                await msg.delete()
 
 async def delete_previous_command(chat_id):
     """Удалить предыдущее командное сообщение"""
@@ -1116,6 +1180,29 @@ async def forward_to_saved(media_path, caption_text=""):
         import traceback
         traceback.print_exc()
         return False
+
+async def send_bio_message(client, chat_id):
+    """Отправка Bio сообщения (Текст/Медиа + Аудио)"""
+    about_config = load_about_config()
+    if not about_config.get('enabled'):
+        return False
+
+    # 1. Send Main (Text +- Media)
+    text = about_config.get('text', '')
+    path = about_config.get('media_path')
+    
+    if path and os.path.exists(path):
+        await client.send_file(chat_id, path, caption=text)
+    elif text:
+        await client.send_message(chat_id, text)
+    
+    # 2. Send Audio if exists (Dual Message)
+    audio_path = about_config.get('audio_path')
+    if audio_path and os.path.exists(audio_path):
+        await asyncio.sleep(0.5)
+        await client.send_file(chat_id, audio_path)
+    
+    return True
 
 # ============ ОБРАБОТЧИКИ КОМАНД ============
 async def handle_aiconfig_commands(event, message_text):
@@ -2226,19 +2313,16 @@ async def incoming_handler(event):
         # --- Check for Bio Auto-Reply ---
         # Выполняем Bio независимо от AI, но только если это ЛС
         bio_sent = False
+        # --- Check for Bio Auto-Reply ---
+        # Выполняем Bio независимо от AI, но только если это ЛС
+        bio_sent = False
         if is_private:
             about_config = load_about_config()
             if about_config.get('enabled'):
                  seen = about_config.get('seen_users', [])
                  if sender_id not in seen:
-                     # Send Bio
-                     text = about_config.get('text', '')
-                     path = about_config.get('media_path')
-                     
-                     if path and os.path.exists(path):
-                         await client.send_file(chat_id, path, caption=text)
-                     elif text:
-                         await client.send_message(chat_id, text)
+                     print(f"👋 sending bio to {sender_id}")
+                     await send_bio_message(client, chat_id)
                          
                      seen.append(sender_id)
                      about_config['seen_users'] = seen
@@ -2363,6 +2447,15 @@ async def outgoing_handler(event):
             if await handle_mute_commands_new(event, message_text):
                 return
         
+        # Команда .bio (вручную отправить био)
+        if message_text.lower() == '.bio':
+            await delete_previous_command(chat_id)
+            if not await send_bio_message(client, chat_id):
+                 msg = await event.respond('❌ Bio выключено или не настроено!')
+                 await asyncio.sleep(2)
+                 await msg.delete()
+            return
+
         if message_text.lower().startswith('.saver'):
             if await handle_saver_commands(event, message_text):
                 return
