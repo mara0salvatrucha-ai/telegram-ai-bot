@@ -845,7 +845,7 @@ async def show_main_menu(event):
     
     text = f"🎮 **𝐂𝐎𝐍𝐓𝐑𝐎𝐋 𝐏𝐀𝐍𝐄𝐋**\n\n🛡️ **𝐔𝐬𝐞𝐫:** {OWNER_ID}\n🤖 **𝐁𝐨𝐭:** @{(await bot.get_me()).username}\n\n👇 𝐒𝐞𝐥𝐞𝐜𝐭 𝐂𝐚𝐭𝐞𝐠𝐨𝐫𝐲:"
     
-    if hasattr(event, 'edit'):
+    if hasattr(event, 'data') and event.data:
         await event.edit(text, buttons=buttons)
     else:
         await event.respond(text, buttons=buttons)
