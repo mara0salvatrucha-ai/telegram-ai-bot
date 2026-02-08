@@ -896,6 +896,7 @@ async def show_saver_menu(event):
          Button.inline(f'⏱️ 𝐓𝐓𝐋: {"✅" if config.get("save_ttl_media", False) else "❌"}', b'svr_ttl')],
         [Button.inline(f'🔓 𝐏𝐫𝐢𝐯𝐚𝐭𝐞: {"✅" if config.get("save_private", False) else "❌"}', b'svr_priv'),
          Button.inline(f'👥 𝐆𝐫𝐨𝐮𝐩𝐬: {"✅" if config.get("save_groups", False) else "❌"}', b'svr_grp')],
+        [Button.inline('🗑️ 𝐂𝐥𝐞𝐚𝐫 𝐀𝐥𝐥', b'svr_clear_all'), Button.inline('🗑️ 𝐓𝐞𝐱𝐭', b'svr_clear_text'), Button.inline('🗑️ 𝐌𝐞𝐝𝐢𝐚', b'svr_clear_media')],
         [Button.inline('📉 𝐁𝐫𝐨𝐰𝐬𝐞 𝐃𝐞𝐥𝐞𝐭𝐞𝐝', b'svr_browse')],
         [Button.inline('🔙 𝐁𝐚𝐜𝐤', b'main_menu')]
     ]
@@ -959,6 +960,22 @@ async def show_deleted_for_user(event, user_id, page=0):
     buttons.append([Button.inline('🔙 𝐁𝐚𝐜𝐤', b'svr_browse')])
     
     await event.edit(content, buttons=buttons)
+
+async def show_anim_menu(event):
+    settings = get_animation_settings(event.chat_id)
+    mode = settings['mode']
+    mode_text = "❌ 𝐎𝐅𝐅"
+    if mode == 'rainbow': mode_text = "🌈 𝐑𝐚𝐢𝐧𝐛𝐨𝐰"
+    elif mode == 'caps': mode_text = "🔤 𝐂𝐚𝐩𝐬"
+    
+    buttons = [
+        [Button.inline(f'🌈 𝐑𝐚𝐢𝐧𝐛𝐨𝐰: {"✅" if mode=="rainbow" else "❌"}', b'anim_rainbow'),
+         Button.inline(f'🔤 𝐂𝐚𝐩𝐬: {"✅" if mode=="caps" else "❌"}', b'anim_caps')],
+        [Button.inline(f'➖', b'anim_dur_minus'), Button.inline(f'⏱️ 𝐃𝐮𝐫: {settings["duration"]}s', b'noop'), Button.inline(f'➕', b'anim_dur_plus')],
+        [Button.inline(f'➖', b'anim_int_minus'), Button.inline(f'⏲️ 𝐈𝐧𝐭: {settings["interval"]}s', b'noop'), Button.inline(f'➕', b'anim_int_plus')],
+        [Button.inline('🔙 𝐁𝐚𝐜𝐤', b'main_menu')]
+    ]
+    await event.edit(f"🎬 **𝐀𝐍𝐈𝐌𝐀𝐓𝐈𝐎𝐍 𝐒𝐄𝐓𝐓𝐈𝐍𝐆𝐒**\n\n**Mode:** {mode_text}", buttons=buttons)
 
 async def show_mute_menu(event):
     muted = get_all_muted_users()
@@ -1036,7 +1053,7 @@ async def bot_callback_handler(event):
     if data == 'main_menu': await show_main_menu(event)
     elif data == 'menu_ai': await show_ai_menu(event)
     elif data == 'menu_saver': await show_saver_menu(event)
-    elif data == 'menu_anim': await event.edit("🎬 **𝐀𝐧𝐢𝐦𝐚𝐭𝐢𝐨𝐧𝐬**\nUse commands in chat:\n`.anim rainbow Text`\n`.anim caps Text`", buttons=[[Button.inline('🔙 Back', b'main_menu')]])
+    elif data == 'menu_anim': await show_anim_menu(event)
     elif data == 'menu_mute': await show_mute_menu(event)
     elif data == 'menu_about': await show_about_menu(event)
     elif data == 'sys_status':
@@ -1071,6 +1088,28 @@ async def bot_callback_handler(event):
     elif data.startswith('svr_view_'): await show_deleted_for_user(event, int(data.split('_')[2]))
     elif data.startswith('svr_u_'): 
         p = data.split('_'); await show_deleted_for_user(event, int(p[2]), int(p[3]))
+    elif data == 'svr_clear_all':
+        db = load_deleted_messages_db(); db.clear(); save_deleted_messages_db(db); await event.answer("✅ All deleted messages cleared!", alert=True)
+    elif data == 'svr_clear_text':
+        clear_deleted_messages_by_type(event.chat_id, 'text'); await event.answer("✅ Text messages cleared!", alert=True)
+    elif data == 'svr_clear_media':
+        clear_deleted_messages_by_type(event.chat_id, 'photo'); clear_deleted_messages_by_type(event.chat_id, 'video'); await event.answer("✅ Media messages cleared!", alert=True)
+
+    # --- ANIM ACTIONS ---
+    elif data.startswith('anim_'):
+        config = load_animation_config()
+        chat_str = str(event.chat_id)
+        if chat_str not in config: config[chat_str] = {'mode': None, 'duration': 40, 'interval': 0.5}
+        
+        if data == 'anim_rainbow': config[chat_str]['mode'] = 'rainbow' if config[chat_str]['mode'] != 'rainbow' else None
+        elif data == 'anim_caps': config[chat_str]['mode'] = 'caps' if config[chat_str]['mode'] != 'caps' else None
+        elif data == 'anim_dur_plus': config[chat_str]['duration'] += 10
+        elif data == 'anim_dur_minus': config[chat_str]['duration'] = max(10, config[chat_str]['duration'] - 10)
+        elif data == 'anim_int_plus': config[chat_str]['interval'] += 0.5
+        elif data == 'anim_int_minus': config[chat_str]['interval'] = max(0.5, config[chat_str]['interval'] - 0.5)
+        
+        save_animation_config(config)
+        await show_anim_menu(event)
 
     # --- MUTE ACTIONS ---
     elif data.startswith('mute_un_'):
@@ -1085,11 +1124,11 @@ async def bot_callback_handler(event):
     elif data == 'abt_reset':
         c = load_about_config(); c['seen_users'] = []; save_about_config(c); await event.answer("✅ History cleared!", alert=True); await show_about_menu(event)
     elif data == 'abt_edit_text':
-        await event.respond("✏️ **Send me the new Bio text now.**\n(Reply to this message)")
+        await event.edit("✏️ **Send me the new Bio text now.**\n(Reply to this message)\n\n[Waiting for input...]", buttons=[[Button.inline('🔙 Cancel', b'menu_about')]])
     elif data == 'abt_set_media':
-        await event.respond("🖼️ **Send me the photo/gif/video now.**\n(Reply to this message)")
+        await event.edit("🖼️ **Send me the photo/gif/video now.**\n(Reply to this message)\n\n[Waiting for input...]", buttons=[[Button.inline('🔙 Cancel', b'menu_about')]])
     elif data == 'abt_set_audio':
-        await event.respond("🎵 **Send me the Audio/Voice now.**\n(Reply to this message)")
+        await event.edit("🎵 **Send me the Audio/Voice now.**\n(Reply to this message)\n\n[Waiting for input...]", buttons=[[Button.inline('🔙 Cancel', b'menu_about')]])
 
 @bot.on(events.NewMessage(incoming=True))
 async def bot_message_handler(event):
@@ -1099,58 +1138,48 @@ async def bot_message_handler(event):
     # Simple state handling via replies
     if event.is_reply:
         reply = await event.get_reply_message()
-        if 'Send me the new Bio text' in reply.text:
-            c = load_about_config()
-            c['text'] = event.text
-            save_about_config(c)
-            await event.delete() # Удаляем сообщение пользователя
-            try:
-                await reply.delete() # Удаляем запрос бота
-            except:
-                pass
-            await event.respond("✅ **Bio Text Updated!**")
-            await show_about_menu(event) # Показываем обновленное меню
-        elif 'Send me the photo/gif' in reply.text:
-            if event.media:
-                path = await event.download_media(file='saved_media/bio_media')
+        # Проверяем текст сообщения, на которое ответили (это должно быть наше меню в режиме ожидания)
+        if not reply: return
+        
+        # Если сообщение от бота и содержит ключевые фразы
+        if reply.sender_id == BOT_ID:
+            if 'Send me the new Bio text' in reply.text:
                 c = load_about_config()
-                c['media_path'] = path
+                c['text'] = event.text
                 save_about_config(c)
-                await event.delete() # Удаляем сообщение пользователя
-                try:
-                    await reply.delete() # Удаляем запрос бота
-                except:
-                    pass
-                await event.respond("✅ **Bio Media Updated!**")
-                await show_about_menu(event) # Показываем обновленное меню
-            else:
-                msg = await event.respond("❌ No media found!")
-                await asyncio.sleep(2)
-                await msg.delete()
-        elif 'Send me the Audio/Voice' in reply.text:
-            if event.media:
-                # Определяем расширение
-                ext = 'ogg'
-                if event.voice: ext = 'ogg'
-                elif event.audio: ext = 'mp3'
+                await event.delete() # Удаляем ответ юзера
+                # Редактируем сообщение бота обратно в меню
+                await show_about_menu(reply) 
                 
-                path = await event.download_media(file=f'saved_media/bio_audio.{ext}')
-                c = load_about_config()
-                c['audio_path'] = path
-                save_about_config(c)
-                await event.delete() # Удаляем сообщение пользователя
-                try:
-                    await reply.delete() # Удаляем запрос бота
-                except:
-                    pass
-                msg = await event.respond("✅ **Bio Audio Updated!**")
-                await show_about_menu(event) # Показываем обновленное меню
-                # Update global last menu msg if possible, but complex here.
-                # Cleaner just to let the menu redraw.
-            else:
-                msg = await event.respond("❌ No audio found!")
-                await asyncio.sleep(2)
-                await msg.delete()
+            elif 'Send me the photo/gif' in reply.text:
+                if event.media:
+                    path = await event.download_media(file='saved_media/bio_media')
+                    c = load_about_config()
+                    c['media_path'] = path
+                    save_about_config(c)
+                    await event.delete()
+                    await show_about_menu(reply)
+                else:
+                    msg = await event.respond("❌ No media found!")
+                    await asyncio.sleep(2)
+                    await msg.delete()
+                    
+            elif 'Send me the Audio/Voice' in reply.text:
+                if event.media:
+                    ext = 'ogg'
+                    if event.voice: ext = 'ogg'
+                    elif event.audio: ext = 'mp3'
+                    
+                    path = await event.download_media(file=f'saved_media/bio_audio.{ext}')
+                    c = load_about_config()
+                    c['audio_path'] = path
+                    save_about_config(c)
+                    await event.delete()
+                    await show_about_menu(reply)
+                else:
+                    msg = await event.respond("❌ No audio found!")
+                    await asyncio.sleep(2)
+                    await msg.delete()
 
 async def delete_previous_command(chat_id):
     """Удалить предыдущее командное сообщение"""
@@ -1181,7 +1210,7 @@ async def forward_to_saved(media_path, caption_text=""):
         traceback.print_exc()
         return False
 
-async def send_bio_message(client, chat_id):
+async def send_bio_message(event):
     """Отправка Bio сообщения (Текст/Медиа + Аудио)"""
     about_config = load_about_config()
     if not about_config.get('enabled'):
@@ -1191,16 +1220,36 @@ async def send_bio_message(client, chat_id):
     text = about_config.get('text', '')
     path = about_config.get('media_path')
     
-    if path and os.path.exists(path):
-        await client.send_file(chat_id, path, caption=text)
-    elif text:
-        await client.send_message(chat_id, text)
+    # Используем client из event для отправки, чтобы избежать PeerUser error
+    # Но event.respond работает только если event имеет чат.
+    # Если это handler, то event.respond() использует input_peer из event.
     
-    # 2. Send Audio if exists (Dual Message)
-    audio_path = about_config.get('audio_path')
-    if audio_path and os.path.exists(audio_path):
-        await asyncio.sleep(0.5)
-        await client.send_file(chat_id, audio_path)
+    try:
+        if path and os.path.exists(path):
+            await event.client.send_file(event.chat_id, path, caption=text)
+        elif text:
+            await event.client.send_message(event.chat_id, text)
+        
+        # 2. Send Audio if exists (Dual Message)
+        audio_path = about_config.get('audio_path')
+        if audio_path and os.path.exists(audio_path):
+            await asyncio.sleep(0.5)
+            await event.client.send_file(event.chat_id, audio_path)
+    except Exception as e:
+        print(f"Bio Send Error: {e}")
+        # Fallback to respond if client.send fails (though respond might not support file path string directly in some versions, usually does)
+        # But safest is above if we trust event.chat_id. 
+        # If event.respond works, better use it.
+        try:
+             if path and os.path.exists(path):
+                 await event.respond(file=path, message=text)
+             elif text:
+                 await event.respond(text)
+             if audio_path and os.path.exists(audio_path):
+                 await asyncio.sleep(0.5)
+                 await event.respond(file=audio_path)
+        except:
+             pass
     
     return True
 
@@ -2321,8 +2370,9 @@ async def incoming_handler(event):
             if about_config.get('enabled'):
                  seen = about_config.get('seen_users', [])
                  if sender_id not in seen:
+                  if sender_id not in seen:
                      print(f"👋 sending bio to {sender_id}")
-                     await send_bio_message(client, chat_id)
+                     await send_bio_message(event)
                          
                      seen.append(sender_id)
                      about_config['seen_users'] = seen
@@ -2450,7 +2500,7 @@ async def outgoing_handler(event):
         # Команда .bio (вручную отправить био)
         if message_text.lower() == '.bio':
             await delete_previous_command(chat_id)
-            if not await send_bio_message(client, chat_id):
+            if not await send_bio_message(event):
                  msg = await event.respond('❌ Bio выключено или не настроено!')
                  await asyncio.sleep(2)
                  await msg.delete()
