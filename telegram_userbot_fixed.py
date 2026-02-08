@@ -830,6 +830,8 @@ def clear_chat_history(chat_id):
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 # ============ ЛОГИКА КОНТРОЛЛЕРА (БОТА) ============
 
+bot = TelegramClient('bot_session', API_ID, API_HASH)
+
 F_BOLD = lambda t: "".join([chr(0x1D400 + ord(c) - 65) if 65 <= ord(c) <= 90 else chr(0x1D41A + ord(c) - 97) if 97 <= ord(c) <= 122 else c for c in t])
 F_MONO = lambda t: f"`{t}`"
 
