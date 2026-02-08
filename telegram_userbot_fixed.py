@@ -37,7 +37,9 @@ ABOUT_CONFIG_FILE = 'about_config.json'
 
 SESSION_NAME = 'railway_session'
 MEDIA_FOLDER = 'saved_media'
+MEDIA_FOLDER = 'saved_media'
 OWNER_ID = None
+BOT_ID = None
 
 last_command_message = {}
 COMMAND_PREFIXES = ['.saver', '.deleted', '.aiconfig', '.aistop', '.aiclear', '.anim', '.замолчи', '.говори', '.del', '.список', '.neiro']
@@ -1056,18 +1058,30 @@ async def bot_message_handler(event):
             c = load_about_config()
             c['text'] = event.text
             save_about_config(c)
+            await event.delete() # Удаляем сообщение пользователя
+            try:
+                await reply.delete() # Удаляем запрос бота
+            except:
+                pass
             await event.respond("✅ **Bio Text Updated!**")
-            await show_about_menu(event)
+            await show_about_menu(event) # Показываем обновленное меню
         elif 'Send me the photo/gif' in reply.text:
             if event.media:
                 path = await event.download_media(file='saved_media/bio_media')
                 c = load_about_config()
                 c['media_path'] = path
                 save_about_config(c)
+                await event.delete() # Удаляем сообщение пользователя
+                try:
+                    await reply.delete() # Удаляем запрос бота
+                except:
+                    pass
                 await event.respond("✅ **Bio Media Updated!**")
-                await show_about_menu(event)
+                await show_about_menu(event) # Показываем обновленное меню
             else:
-                await event.respond("❌ No media found!")
+                msg = await event.respond("❌ No media found!")
+                await asyncio.sleep(2)
+                await msg.delete()
 
 async def delete_previous_command(chat_id):
     """Удалить предыдущее командное сообщение"""
@@ -2161,6 +2175,9 @@ async def incoming_handler(event):
         
         if is_user_muted_new(sender_id):
             return
+
+        if BOT_ID and sender_id == BOT_ID:
+            return
         
         config = load_ai_config()
         
@@ -2382,7 +2399,7 @@ async def outgoing_handler(event):
 
 # ============ ГЛАВНАЯ ФУНКЦИЯ ============
 async def main():
-    global OWNER_ID
+    global OWNER_ID, BOT_ID
     print('🚀 Запуск Telegram Userbot...')
     print(f'📝 Сессия: {SESSION_NAME}.session')
     
@@ -2400,6 +2417,14 @@ async def main():
         
         me = await client.get_me()
         OWNER_ID = me.id
+        
+        # Получаем ID бота, если токен есть, чтобы игнорировать его в userbot
+        try:
+            if BOT_TOKEN and BOT_TOKEN != 'YOUR_BOT_TOKEN_HERE':
+                 # Мы не можем получить get_me для бота через client, но сделаем это через сам bot client позже
+                 pass
+        except:
+             pass
         
         print(f'✅ Userbot запущен!')
         print(f'👤 Аккаунт: {me.username or me.first_name} (ID: {OWNER_ID})')
@@ -2446,7 +2471,8 @@ async def main():
             try:
                 await bot.start(bot_token=BOT_TOKEN)
                 bot_me = await bot.get_me()
-                print(f'✅ Бот запущен: @{bot_me.username}')
+                BOT_ID = bot_me.id
+                print(f'✅ Бот запущен: @{bot_me.username} (ID: {BOT_ID})')
                 print(f'   Напишите /start в ЛС боту для управления.')
                 
                 # Запускаем оба клиента
