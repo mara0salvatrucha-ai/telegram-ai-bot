@@ -33,6 +33,7 @@ MUTE_CONFIG_FILE = 'mute_config.json'
 TEMP_SELECTION_FILE = 'temp_selection.json'
 AI_CONFIG_FILE = 'ai_config.json'
 MUTED_USERS_DB = 'muted_users_db.json'
+ABOUT_CONFIG_FILE = 'about_config.json'
 
 SESSION_NAME = 'railway_session'
 MEDIA_FOLDER = 'saved_media'
@@ -104,6 +105,27 @@ def save_muted_users_db(data):
     try:
         with open(MUTED_USERS_DB, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+
+def load_about_config():
+    if os.path.exists(ABOUT_CONFIG_FILE):
+        try:
+            with open(ABOUT_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    return {
+        'enabled': False,
+        'text': '👋 Привет! Я сейчас занят, отвечу позже.',
+        'media_path': None,
+        'seen_users': []
+    }
+
+def save_about_config(config):
+    try:
+        with open(ABOUT_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
     except:
         pass
 
@@ -806,146 +828,244 @@ def clear_chat_history(chat_id):
         save_db(db)
 
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-bot = TelegramClient('bot_session', API_ID, API_HASH) # Клиент для управления
-
 # ============ ЛОГИКА КОНТРОЛЛЕРА (БОТА) ============
 
-@bot.on(events.NewMessage(pattern='/start'))
-async def bot_start_handler(event):
-    if OWNER_ID and event.sender_id != OWNER_ID:
-        await event.respond('❌ Доступ запрещен! Я управляю только моим создателем.')
-        return
-        
-    await show_main_menu(event)
+F_BOLD = lambda t: "".join([chr(0x1D400 + ord(c) - 65) if 65 <= ord(c) <= 90 else chr(0x1D41A + ord(c) - 97) if 97 <= ord(c) <= 122 else c for c in t])
+F_MONO = lambda t: f"`{t}`"
 
 async def show_main_menu(event):
     buttons = [
-        [Button.inline('🤖 Настройки ИИ', b'menu_ai'), Button.inline('💾 Сохранение', b'menu_saver')],
-        [Button.inline('🎬 Анимации', b'menu_anim'), Button.inline('🔇 Заглушка', b'menu_mute')],
-        [Button.inline('📊 Статус системы', b'sys_status')]
+        [Button.inline('🤖 𝐀𝐈 𝐒𝐞𝐭𝐭𝐢𝐧𝐠𝐬', b'menu_ai'), Button.inline('💾 𝐒𝐚𝐯𝐞𝐫', b'menu_saver')],
+        [Button.inline('🎬 𝐀𝐧𝐢𝐦𝐚𝐭𝐢𝐨𝐧𝐬', b'menu_anim'), Button.inline('🔇 𝐌𝐮𝐭𝐞 𝐌𝐠𝐫', b'menu_mute')],
+        [Button.inline('👋 𝐁𝐢𝐨 / 𝐀𝐮𝐭𝐨-𝐑𝐞𝐩𝐥𝐲', b'menu_about')],
+        [Button.inline('📊 𝐒𝐲𝐬𝐭𝐞𝐦 𝐒𝐭𝐚𝐭𝐮𝐬', b'sys_status')]
     ]
     
-    text = "**🎮 ПАНЕЛЬ УПРАВЛЕНИЯ USERBOT**\n\nВыберите категорию настроек:"
+    text = f"🎮 **𝐂𝐎𝐍𝐓𝐑𝐎𝐋 𝐏𝐀𝐍𝐄𝐋**\n\n🛡️ **𝐔𝐬𝐞𝐫:** {OWNER_ID}\n🤖 **𝐁𝐨𝐭:** @{(await bot.get_me()).username}\n\n👇 𝐒𝐞𝐥𝐞𝐜𝐭 𝐂𝐚𝐭𝐞𝐠𝐨𝐫𝐲:"
     
-    # Если это CallbackQuery (нажатие кнопки), то редактируем сообщение
-    if hasattr(event, 'data') and event.data:
+    if hasattr(event, 'edit'):
         await event.edit(text, buttons=buttons)
     else:
-        # Если это команда /start, то отправляем новое сообщение
         await event.respond(text, buttons=buttons)
+
+async def show_ai_menu(event):
+    config = load_ai_config()
+    adv = config.get('advanced', {})
+    
+    status = "✅ 𝐎𝐍" if config.get('enabled') else "❌ 𝐎𝐅𝐅"
+    model = config.get('model', MODEL_NAME) # Fallback to global if not set
+    
+    # Schedule
+    sched = config.get('schedule', {'start': 0, 'end': 0})
+    sched_str = "🚫"
+    if sched['start'] != sched['end']:
+        sched_str = f"{sched['start']:02d}:00 - {sched['end']:02d}:00"
+
+    buttons = [
+        [Button.inline(f'⚡ 𝐌𝐚𝐬𝐭𝐞𝐫 𝐒𝐰𝐢𝐭𝐜𝐡: {status}', b'ai_toggle_main')],
+        [Button.inline(f'🎤 𝐕𝐨𝐢𝐜𝐞: {"✅" if adv.get("voice_enabled", True) else "❌"}', b'ai_toggle_voice'),
+         Button.inline(f'📷 𝐏𝐡𝐨𝐭𝐨: {"✅" if adv.get("photo_enabled", True) else "❌"}', b'ai_toggle_photo')],
+        [Button.inline(f'🔄 𝐀𝐮𝐭𝐨-𝐑𝐞𝐩𝐥𝐲 𝐀𝐥𝐥: {"✅" if adv.get("auto_reply_all", False) else "❌"}', b'ai_toggle_auto')],
+        [Button.inline(f'🔒 𝐏𝐫𝐢𝐯𝐚𝐭𝐞: {"✅" if config.get("ai_private_enabled", False) else "❌"}', b'ai_toggle_priv'),
+         Button.inline(f'👥 𝐆𝐫𝐨𝐮𝐩𝐬: {"✅" if config.get("ai_groups_enabled", False) else "❌"}', b'ai_toggle_grp')],
+         
+        [Button.inline(f'🕒 𝐒𝐜𝐡𝐞𝐝𝐮𝐥𝐞: {sched_str}', b'ai_sched_info')],
+        [Button.inline('🔙 𝐁𝐚𝐜𝐤', b'main_menu')]
+    ]
+    await event.edit(f"🤖 **𝐀𝐈 𝐂𝐎𝐍𝐅𝐈𝐆𝐔𝐑𝐀𝐓𝐈𝐎𝐍**\n\n🧠 **𝐌𝐨𝐝𝐞𝐥:** `{MODEL_NAME}`\n🌡️ **𝐓𝐞𝐦𝐩:** `{adv.get('temperature', 0.7)}`", buttons=buttons)
+
+async def show_saver_menu(event):
+    config = load_saver_config()
+    buttons = [
+        [Button.inline(f'📝 𝐓𝐞𝐱𝐭: {"✅" if config.get("save_text", True) else "❌"}', b'svr_text'),
+         Button.inline(f'🖼️ 𝐌𝐞𝐝𝐢𝐚: {"✅" if config.get("save_media", True) else "❌"}', b'svr_media')],
+        [Button.inline(f'🎤 𝐕𝐨𝐢𝐜𝐞: {"✅" if config.get("save_voice", True) else "❌"}', b'svr_voice'),
+         Button.inline(f'⏱️ 𝐓𝐓𝐋: {"✅" if config.get("save_ttl_media", False) else "❌"}', b'svr_ttl')],
+        [Button.inline(f'🔓 𝐏𝐫𝐢𝐯𝐚𝐭𝐞: {"✅" if config.get("save_private", False) else "❌"}', b'svr_priv'),
+         Button.inline(f'👥 𝐆𝐫𝐨𝐮𝐩𝐬: {"✅" if config.get("save_groups", False) else "❌"}', b'svr_grp')],
+        [Button.inline('📉 𝐁𝐫𝐨𝐰𝐬𝐞 𝐃𝐞𝐥𝐞𝐭𝐞𝐝', b'svr_browse')],
+        [Button.inline('🔙 𝐁𝐚𝐜𝐤', b'main_menu')]
+    ]
+    await event.edit("💾 **𝐒𝐀𝐕𝐄𝐑 𝐒𝐄𝐓𝐓𝐈𝐍𝐆𝐒**\n\nConfigure what deleted messages to save.", buttons=buttons)
+    
+async def show_saver_browser(event, page=0):
+    senders = get_all_senders_with_deleted()
+    if not senders:
+         await event.edit("📭 **𝐍𝐨 𝐃𝐚𝐭𝐚**\nNo deleted messages found.", buttons=[[Button.inline('🔙 𝐁𝐚𝐜𝐤', b'menu_saver')]])
+         return
+
+    # Pagination
+    ITEMS_PER_PAGE = 5
+    start = page * ITEMS_PER_PAGE
+    end = start + ITEMS_PER_PAGE
+    current_page_items = senders[start:end]
+    
+    buttons = []
+    for sid, name, count in current_page_items:
+        buttons.append([Button.inline(f"👤 {name} ({count})", f'svr_view_{sid}'.encode())])
+    
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(Button.inline('⬅️', f'svr_page_{page-1}'.encode()))
+    if end < len(senders):
+        nav_buttons.append(Button.inline('➡️', f'svr_page_{page+1}'.encode()))
+    
+    if nav_buttons: buttons.append(nav_buttons)
+    buttons.append([Button.inline('🔙 𝐁𝐚𝐜𝐤', b'menu_saver')])
+    
+    await event.edit(f"📉 **𝐃𝐄𝐋𝐄𝐓𝐄𝐃 𝐌𝐄𝐒𝐒𝐀𝐆𝐄𝐒**\nSelect a user to view:", buttons=buttons)
+
+async def show_deleted_for_user(event, user_id, page=0):
+    msgs = get_deleted_messages(sender_id=user_id)
+    if not msgs:
+        await event.edit("📭 Empty", buttons=[[Button.inline('🔙 Back', b'svr_browse')]])
+        return
+        
+    # Pagination
+    ITEMS_PER_PAGE = 1
+    start = page * ITEMS_PER_PAGE
+    if start >= len(msgs): start = 0
+    msg = msgs[start]
+    
+    text_type = "📝 𝐓𝐞𝐱𝐭"
+    if msg.get('has_photo'): text_type = "🖼️ 𝐏𝐡𝐨𝐭𝐨"
+    elif msg.get('has_video'): text_type = "🎥 𝐕𝐢𝐝𝐞𝐨"
+    elif msg.get('has_voice'): text_type = "🎤 𝐕𝐨𝐢𝐜𝐞"
+    
+    content = f"🗑️ **𝐃𝐄𝐋𝐄𝐓𝐄𝐃 𝐌𝐒𝐆** ({start+1}/{len(msgs)})\n"
+    content += f"👤 **𝐔𝐬𝐞𝐫:** {msg.get('sender_name')}\n"
+    content += f"🕒 **𝐓𝐢𝐦𝐞:** {msg.get('deleted_at', '')[:16]}\n"
+    content += f"🏷️ **𝐓𝐲𝐩𝐞:** {text_type}\n"
+    content += f"💬 **𝐂𝐨𝐧𝐭𝐞𝐧𝐭:**\n`{msg.get('text', '')}`"
+    
+    buttons = []
+    nav = []
+    if page > 0: nav.append(Button.inline('⬅️', f'svr_u_{user_id}_{page-1}'.encode()))
+    if start + 1 < len(msgs): nav.append(Button.inline('➡️', f'svr_u_{user_id}_{page+1}'.encode()))
+    if nav: buttons.append(nav)
+    buttons.append([Button.inline('🔙 𝐁𝐚𝐜𝐤', b'svr_browse')])
+    
+    await event.edit(content, buttons=buttons)
+
+async def show_mute_menu(event):
+    muted = get_all_muted_users()
+    buttons = []
+    
+    for uid, info in list(muted.items())[:10]: # Limit to 10
+        buttons.append([Button.inline(f"🔓 Unmute {info['user_name']}", f'mute_un_{uid}'.encode())])
+        
+    buttons.append([Button.inline('🔙 𝐁𝐚𝐜𝐤', b'main_menu')])
+    await event.edit(f"🔇 **𝐌𝐔𝐓𝐄𝐃 𝐔𝐒𝐄𝐑𝐒** ({len(muted)})\nClick to unmute:", buttons=buttons)
+
+async def show_about_menu(event):
+    config = load_about_config()
+    status = "✅ 𝐎𝐍" if config.get('enabled') else "❌ 𝐎𝐅𝐅"
+    
+    buttons = [
+        [Button.inline(f'⚡ 𝐄𝐧𝐚𝐛𝐥𝐞𝐝: {status}', b'abt_toggle')],
+        [Button.inline('✏️ 𝐄𝐝𝐢𝐭 𝐓𝐞𝐱𝐭', b'abt_edit_text')],
+        [Button.inline('🖼️ 𝐒𝐞𝐭 𝐌𝐞𝐝𝐢𝐚 (Repy to this)', b'abt_set_media')],
+        [Button.inline('🧹 𝐑𝐞𝐬𝐞𝐭 𝐒𝐞𝐞𝐧 𝐋𝐢𝐬𝐭', b'abt_reset')],
+        [Button.inline('🔙 𝐁𝐚𝐜𝐤', b'main_menu')]
+    ]
+    
+    preview = config.get('text', 'No text set')[:100]
+    await event.edit(f"👋 **𝐁𝐈𝐎 / 𝐀𝐔𝐓𝐎-𝐑𝐄𝐏𝐋𝐘**\n\n📜 **𝐓𝐞𝐱𝐭:**\n`{preview}`\n\n🖼️ **𝐌𝐞𝐝𝐢𝐚:** {'✅ Set' if config.get('media_path') else '❌ None'}\n👀 **𝐒𝐞𝐞𝐧:** {len(config.get('seen_users', []))} users", buttons=buttons)
+
+@bot.on(events.NewMessage(pattern='/start'))
+async def bot_start_handler(event):
+    if OWNER_ID and event.sender_id != OWNER_ID: return
+    await show_main_menu(event)
 
 @bot.on(events.CallbackQuery)
 async def bot_callback_handler(event):
     if OWNER_ID and event.sender_id != OWNER_ID:
-        await event.answer('❌ Доступ запрещен!', alert=True)
+        await event.answer('❌ Access Denied', alert=True)
         return
     
     data = event.data.decode('utf-8')
     
-    # --- НАВИГАЦИЯ ---
-    if data == 'main_menu':
-        await show_main_menu(event)
-        return
-        
-    # --- МЕНЮ ИИ ---
-    if data == 'menu_ai':
-        config = load_ai_config()
-        adv = config.get('advanced', {})
-        
-        status = "✅ ВКЛ" if config.get('enabled') else "❌ ВЫКЛ"
-        btn_toggle = Button.inline(f'Switch: {status}', b'ai_toggle_main')
-        
-        voice_st = "✅" if adv.get('voice_enabled', True) else "❌"
-        photo_st = "✅" if adv.get('photo_enabled', True) else "❌"
-        auto_st = "✅" if adv.get('auto_reply_all', False) else "❌"
-        
-        buttons = [
-            [btn_toggle],
-            [Button.inline(f'🎤 Голосовые: {voice_st}', b'ai_toggle_voice'), Button.inline(f'📷 Фото: {photo_st}', b'ai_toggle_photo')],
-            [Button.inline(f'🔄 Авто-ответ всем: {auto_st}', b'ai_toggle_auto')],
-            [Button.inline('🔙 Назад', b'main_menu')]
-        ]
-        await event.edit(f"🤖 **Настройки ИИ**\nМодель: `{MODEL_NAME}`\nСтатус: {status}", buttons=buttons)
-    
-    elif data == 'ai_toggle_main':
-        config = load_ai_config()
-        config['enabled'] = not config.get('enabled', False)
-        save_ai_config(config)
-        await bot_callback_handler(event) # Refresh
-        
-    elif data == 'ai_toggle_voice':
-        config = load_ai_config()
-        if 'advanced' not in config: config['advanced'] = {}
-        config['advanced']['voice_enabled'] = not config['advanced'].get('voice_enabled', True)
-        save_ai_config(config)
-        await bot_callback_handler(event) # Refresh (нужен хак, так как data изменился, но для простоты перевызовем меню)
-        # Hack: подменяем data чтобы вернуться в меню
-        event.data = b'menu_ai'
-        await bot_callback_handler(event)
-        
-    elif data == 'ai_toggle_photo':
-        config = load_ai_config()
-        if 'advanced' not in config: config['advanced'] = {}
-        config['advanced']['photo_enabled'] = not config['advanced'].get('photo_enabled', True)
-        save_ai_config(config)
-        event.data = b'menu_ai'
-        await bot_callback_handler(event)
-        
-    elif data == 'ai_toggle_auto':
-        config = load_ai_config()
-        if 'advanced' not in config: config['advanced'] = {}
-        config['advanced']['auto_reply_all'] = not config['advanced'].get('auto_reply_all', False)
-        save_ai_config(config)
-        event.data = b'menu_ai'
-        await bot_callback_handler(event)
-
-    # --- МЕНЮ SAVER ---
-    elif data == 'menu_saver':
-        config = load_saver_config()
-        
-        buttons = [
-            [Button.inline(f'📝 Текст: {"✅" if config.get("save_text", True) else "❌"}', b'svr_text'),
-             Button.inline(f'🖼️ Медиа: {"✅" if config.get("save_media", True) else "❌"}', b'svr_media')],
-            [Button.inline(f'🎤 ГС: {"✅" if config.get("save_voice", True) else "❌"}', b'svr_voice'),
-             Button.inline(f'⏱️ TTL: {"✅" if config.get("save_ttl_media", False) else "❌"}', b'svr_ttl')],
-            [Button.inline(f'🔓 ЛС: {"✅" if config.get("save_private", False) else "❌"}', b'svr_priv'),
-             Button.inline(f'👥 Группы: {"✅" if config.get("save_groups", False) else "❌"}', b'svr_grp')],
-            [Button.inline('🔙 Назад', b'main_menu')]
-        ]
-        await event.edit("💾 **Настройки сохранения**", buttons=buttons)
-
-    elif data.startswith('svr_'):
-        config = load_saver_config()
-        key_map = {
-            'svr_text': 'save_text', 'svr_media': 'save_media',
-            'svr_voice': 'save_voice', 'svr_ttl': 'save_ttl_media',
-            'svr_priv': 'save_private', 'svr_grp': 'save_groups'
-        }
-        key = key_map.get(data)
-        if key:
-            # Для большинства True по умолчанию, кроме TTL и глобальных, но get обрабатывает
-            default = True
-            if key in ['save_ttl_media', 'save_private', 'save_groups']: default = False
-            
-            config[key] = not config.get(key, default)
-            save_saver_config(config)
-            
-        event.data = b'menu_saver'
-        await bot_callback_handler(event)
-
-    # --- МЕНЮ ANIMATION/MUTE ---
-    elif data == 'menu_anim':
-        await event.edit("🎬 **Анимации**\nУправляйте анимациями через команды `.anim` в чате, так удобнее.", buttons=[[Button.inline('🔙 Назад', b'main_menu')]])
-        
-    elif data == 'menu_mute':
-        muted = get_all_muted_users()
-        cnt = len(muted)
-        await event.edit(f"🔇 **Заглушка**\nЗаглушено пользователей: {cnt}\n\nДля управления используйте `.замолчи` / `.говори` в чатах.", buttons=[[Button.inline('🔙 Назад', b'main_menu')]])
-
+    # --- ROUTING ---
+    if data == 'main_menu': await show_main_menu(event)
+    elif data == 'menu_ai': await show_ai_menu(event)
+    elif data == 'menu_saver': await show_saver_menu(event)
+    elif data == 'menu_anim': await event.edit("🎬 **𝐀𝐧𝐢𝐦𝐚𝐭𝐢𝐨𝐧𝐬**\nUse commands in chat:\n`.anim rainbow Text`\n`.anim caps Text`", buttons=[[Button.inline('🔙 Back', b'main_menu')]])
+    elif data == 'menu_mute': await show_mute_menu(event)
+    elif data == 'menu_about': await show_about_menu(event)
     elif data == 'sys_status':
-        import platform, python_version
-        sys_info = f"💻 OS: {platform.system()} {platform.release()}\n🐍 Python: {platform.python_version()}\n🤖 Telethon: {events.__module__}"
-        await event.answer(sys_info, alert=True)
+        import platform
+        await event.answer(f"🐍 Python: {platform.python_version()}\n💻 OS: {platform.system()}\n🤖 Bot Active", alert=True)
+
+    # --- AI ACTIONS ---
+    elif data == 'ai_toggle_main':
+        c = load_ai_config(); c['enabled'] = not c.get('enabled', False); save_ai_config(c); await show_ai_menu(event)
+    elif data == 'ai_toggle_voice':
+        c = load_ai_config(); c.setdefault('advanced', {})['voice_enabled'] = not c['advanced'].get('voice_enabled', True); save_ai_config(c); await show_ai_menu(event)
+    elif data == 'ai_toggle_photo':
+        c = load_ai_config(); c.setdefault('advanced', {})['photo_enabled'] = not c['advanced'].get('photo_enabled', True); save_ai_config(c); await show_ai_menu(event)
+    elif data == 'ai_toggle_auto':
+        c = load_ai_config(); c.setdefault('advanced', {})['auto_reply_all'] = not c['advanced'].get('auto_reply_all', False); save_ai_config(c); await show_ai_menu(event)
+    elif data == 'ai_toggle_priv':
+        c = load_ai_config(); c['ai_private_enabled'] = not c.get('ai_private_enabled', False); save_ai_config(c); await show_ai_menu(event)
+    elif data == 'ai_toggle_grp':
+        c = load_ai_config(); c['ai_groups_enabled'] = not c.get('ai_groups_enabled', False); save_ai_config(c); await show_ai_menu(event)
+    elif data == 'ai_sched_info':
+        await event.answer("ℹ️ Use commands to set schedule:\n.aiconfig schedule 10 22", alert=True)
+
+    # --- SAVER ACTIONS ---
+    elif data.startswith('svr_') and data not in ['svr_browse'] and not data.startswith('svr_page') and not data.startswith('svr_view') and not data.startswith('svr_u_'):
+        c = load_saver_config()
+        k = {'svr_text':'save_text','svr_media':'save_media','svr_voice':'save_voice','svr_ttl':'save_ttl_media','svr_priv':'save_private','svr_grp':'save_groups'}[data]
+        d = True if k not in ['save_ttl_media','save_private','save_groups'] else False
+        c[k] = not c.get(k, d); save_saver_config(c); await show_saver_menu(event)
+        
+    elif data == 'svr_browse': await show_saver_browser(event)
+    elif data.startswith('svr_page_'): await show_saver_browser(event, int(data.split('_')[2]))
+    elif data.startswith('svr_view_'): await show_deleted_for_user(event, int(data.split('_')[2]))
+    elif data.startswith('svr_u_'): 
+        p = data.split('_'); await show_deleted_for_user(event, int(p[2]), int(p[3]))
+
+    # --- MUTE ACTIONS ---
+    elif data.startswith('mute_un_'):
+        uid = int(data.split('_')[2])
+        unmute_user_new(uid)
+        await event.answer("✅ Unmuted!", alert=True)
+        await show_mute_menu(event)
+
+    # --- BIO ACTIONS ---
+    elif data == 'abt_toggle':
+        c = load_about_config(); c['enabled'] = not c.get('enabled', False); save_about_config(c); await show_about_menu(event)
+    elif data == 'abt_reset':
+        c = load_about_config(); c['seen_users'] = []; save_about_config(c); await event.answer("✅ History cleared!", alert=True); await show_about_menu(event)
+    elif data == 'abt_edit_text':
+        await event.respond("✏️ **Send me the new Bio text now.**\n(Reply to this message)")
+    elif data == 'abt_set_media':
+        await event.respond("🖼️ **Send me the photo/gif/video now.**\n(Reply to this message)")
+
+@bot.on(events.NewMessage(incoming=True))
+async def bot_message_handler(event):
+    if OWNER_ID and event.sender_id != OWNER_ID: return
+    if not event.is_private: return
+    
+    # Simple state handling via replies
+    if event.is_reply:
+        reply = await event.get_reply_message()
+        if 'Send me the new Bio text' in reply.text:
+            c = load_about_config()
+            c['text'] = event.text
+            save_about_config(c)
+            await event.respond("✅ **Bio Text Updated!**")
+            await show_about_menu(event)
+        elif 'Send me the photo/gif' in reply.text:
+            if event.media:
+                path = await event.download_media(file='saved_media/bio_media')
+                c = load_about_config()
+                c['media_path'] = path
+                save_about_config(c)
+                await event.respond("✅ **Bio Media Updated!**")
+                await show_about_menu(event)
+            else:
+                await event.respond("❌ No media found!")
 
 async def delete_previous_command(chat_id):
     """Удалить предыдущее командное сообщение"""
@@ -2078,6 +2198,25 @@ async def incoming_handler(event):
         
         # Индивидуальное разрешение чата
         if is_chat_active(chat_id): allowed = True
+        
+        # --- Check for Bio Auto-Reply ---
+        if is_private and not allowed: # Only checking if AI didn't already handle it
+            about_config = load_about_config()
+            if about_config.get('enabled'):
+                 seen = about_config.get('seen_users', [])
+                 if sender_id not in seen:
+                     # Send Bio
+                     text = about_config.get('text', '')
+                     path = about_config.get('media_path')
+                     
+                     if path and os.path.exists(path):
+                         await client.send_file(chat_id, path, caption=text)
+                     elif text:
+                         await client.send_message(chat_id, text)
+                         
+                     seen.append(sender_id)
+                     about_config['seen_users'] = seen
+                     save_about_config(about_config)
         
         if not allowed:
             return
